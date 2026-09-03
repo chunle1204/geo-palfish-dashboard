@@ -401,20 +401,20 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
                      key=lambda x: x[1])[:2]
     nhom_te = ", ".join(f"{nh} ({v:.0%})" for nh, v in nhom_pc)
 
-    L = [f"# Báo cáo giám sát GEO PalFish — {today:%d/%m/%Y}"]
+    L = [f"#### Báo cáo giám sát GEO PalFish — {today:%d/%m/%Y}"]
     _pv = f"{', '.join(sorted(fr['Mốc'].unique()))} · {fr['Prompt ID'].nunique()} prompt · " \
           f"{n} lượt · {', '.join(nts)}"
     if ngays:
         _pv += f" · {min(ngays):%d/%m}–{max(ngays):%d/%m/%Y}"
     L += [_pv, ""]
 
-    L += ["## 1. Tóm tắt", ""]
+    L += ["**1. Tóm tắt**", ""]
     L += [f"{n} lượt: đúng hoàn toàn **{nd} ({pc(nd)})**, đúng một phần {nm} ({pc(nm)}), "
           f"sai {ns} ({pc(ns)}). Ghi nhận **{tong_y} ý lỗi**, trong đó **{len(p0)} lỗi P0**: "
           f"{', '.join(pf_nhan(x) for x in p0) or '—'}."]
     L += [f"Điểm nóng: kém nhất là **{nt_te}** ({nt_te_pc} đúng); nhóm {nhom_te}.", ""]
 
-    L += ["## 2. Chỉ số", ""]
+    L += ["**2. Chỉ số**", ""]
     L += [_md_bang(["Chỉ số", "Giá trị"], [
         ["Tỷ lệ xuất hiện", f"{k['xuat_hien']:.0%}"],
         ["Đúng hoàn toàn", f"{nd} / {n} ({pc(nd)})"],
@@ -423,7 +423,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
         ["Lẫn TT nước ngoài / lỗi thời", f"{tron:.0%}"],
     ]), ""]
 
-    L += ["## 3. Lỗi P0 — xử lý gấp", ""]
+    L += ["**3. Lỗi P0 — xử lý gấp**", ""]
     if not p0:
         L += ["_Không có lỗi P0._", ""]
     else:
@@ -436,7 +436,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
                   f"({len(gg)} lượt · {noi}{ai})"]
         L += [""]
 
-    L += ["## 4. Top lỗi khác", ""]
+    L += ["**4. Top lỗi khác**", ""]
     bp = bang_pf(fr)
     bp = bp[bp["Mức"] != "P0"].sort_values("Số lượt", ascending=False).head(5) if not bp.empty else bp
     if bp.empty:
@@ -445,7 +445,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
         L += [_md_bang(["Mã", "Tên lỗi", "Mức", "Số lượt"],
                        [[r["Mã"], r["Tên lỗi"], r["Mức"], r["Số lượt"]] for _, r in bp.iterrows()]), ""]
 
-    L += ["## 5. Trạng thái xử lý (Issue tracker)", ""]
+    L += ["**5. Trạng thái xử lý (Issue tracker)**", ""]
     if issue is None or issue.empty:
         L += ["_Chưa đọc được Issue tracker._", ""]
     else:
@@ -461,7 +461,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
               f"- Đang chờ Josh / Jacob / HQ chốt: {', '.join(cho['Mã']) or '—'}", ""]
 
     if fr["Mốc"].nunique() > 1:
-        L += ["## Xu hướng qua các mốc", ""]
+        L += ["**Xu hướng qua các mốc**", ""]
         rows = []
         for moc in [m for m in MOC_ORDER if m in set(fr["Mốc"])]:
             gg = fr[fr["Mốc"] == moc]
@@ -470,7 +470,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
                          kk["tong_loi"]])
         L += [_md_bang(["Mốc", "Lượt", "Tỷ lệ đúng", "Tỷ lệ xuất hiện", "Tổng lỗi"], rows), ""]
 
-    L += ["## 6. Việc cần làm (điền tay)",
+    L += ["**6. Việc cần làm (điền tay)**",
           "- Lỗi đã test lại đạt (đóng trong kỳ): …",
           "- Đề xuất cho Content / IT: …",
           "- Cần Josh / Jacob quyết: …"]
@@ -843,12 +843,13 @@ with tab_ct:
 
 with tab_bc:
     st.subheader("Bản tổng hợp định kỳ (tự động tạo)")
-    st.caption("Tính trên **toàn bộ dữ liệu** (không theo bộ lọc bên trái) + Issue tracker. "
-               "Đọc mình bản này là nắm trọn kết quả. Copy / tải về, thêm phần “Việc cần làm” "
-               "rồi gửi. Công cụ không tự lưu / gửi.")
+    st.caption("Tính trên **toàn bộ dữ liệu, mọi ngày** (không theo bộ lọc bên trái) + Issue "
+               "tracker. Copy / tải về, thêm phần “Việc cần làm” rồi gửi. Công cụ không tự lưu / gửi.")
     txt = bao_cao_tuan(df, tinh_kpi(df), issue)
     st.download_button("Tải bản .md", data=txt.encode("utf-8"),
                        file_name=f"bao-cao-GEO-{dt.date.today():%Y%m%d}.md", mime="text/markdown")
+    st.markdown("<style>div[data-testid='stMarkdownContainer'] h4"
+                "{font-size:1.05rem;margin:.3rem 0}</style>", unsafe_allow_html=True)
     st.markdown(txt)
     with st.expander("Xem dạng văn bản thô (để copy sang email / chat)"):
         st.code(txt, language="markdown")
