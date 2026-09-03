@@ -474,6 +474,12 @@ if f_loi:
     f = f[f["_pf"].apply(lambda p: bool(_sel_loi & set(p)))]
 
 st.title("GEO PalFish VN — Báo cáo giám sát thông tin thương hiệu trên nền tảng AI")
+_sheet_url = f"https://docs.google.com/spreadsheets/d/{sid}/edit"
+st.markdown(
+    f"📄 [Mở Google Sheet nguồn]({_sheet_url}) · "
+    f"[tab 4a — Nhật ký lượt chạy]({_sheet_url}#gid={SHEET_GID_MAC_DINH}) · "
+    f"[tab 3 — Issue tracker]({_sheet_url}#gid={SHEET_GID_ISSUE})"
+)
 if f.empty:
     st.warning("Không có dòng nào khớp bộ lọc.")
     st.stop()
