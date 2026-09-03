@@ -145,6 +145,10 @@ def chuan_hoa(df: pd.DataFrame) -> pd.DataFrame:
     )
     sl = pd.to_numeric(g(col(df, "số lỗi") or col(df, "so loi")), errors="coerce")
     o["Số lỗi"] = sl.fillna(o["_pf"].apply(len)).astype(float)
+    # Câu "Đúng" -> KHÔNG tính lỗi (mã PF trên câu Đúng chỉ là ghi chú, không đếm)
+    _dung = o["Độ chính xác"] == "Đúng"
+    o["Số lỗi"] = o["Số lỗi"].where(~_dung, 0.0)
+    o["_pf"] = [[] if d else p for d, p in zip(_dung, o["_pf"])]
     o["Nguồn AI trích dẫn"] = g(col(df, "nguồn ai") or col(df, "nguon ai"))
     tp = g(col(df, "trích palfish") or col(df, "palfish.vn")).str.lower()
     o["Trích palfish.vn"] = tp.str.startswith("có") | tp.str.startswith("co")
