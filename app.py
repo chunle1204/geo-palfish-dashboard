@@ -470,7 +470,7 @@ with tab_tq:
 
         return disp.style.apply(_sty, axis=None)
 
-    c1, c2 = st.columns([5, 2])
+    c1, c2 = st.columns([7, 3])
     with c1:
         st.subheader("Độ chính xác theo nhóm câu hỏi")
         st.dataframe(_bang_dcx("Nhóm prompt", NHOM_ORDER), use_container_width=True)
@@ -486,13 +486,15 @@ with tab_tq:
         base = alt.Chart(dd).encode(
             theta=alt.Theta("Số câu:Q", stack=True),
             order=alt.Order("_o:Q"),
-            color=alt.Color("Độ chính xác:N", sort=BAC_CX, legend=alt.Legend(orient="bottom"),
-                            title=None, scale=alt.Scale(domain=BAC_CX, range=MAU_CX)),
+            color=alt.Color("Độ chính xác:N", sort=BAC_CX, title=None,
+                            legend=alt.Legend(orient="bottom", direction="vertical",
+                                              title=None, labelLimit=220, symbolSize=110),
+                            scale=alt.Scale(domain=BAC_CX, range=MAU_CX)),
         )
-        arc = base.mark_arc(innerRadius=28, outerRadius=58)
+        arc = base.mark_arc(innerRadius=48, outerRadius=95)
         lab = (base.transform_filter("datum['Số câu'] > 0")
-               .mark_text(radius=72, fontSize=9).encode(text="nhãn:N"))
-        st.altair_chart((arc + lab).properties(height=200), use_container_width=True)
+               .mark_text(radius=114, fontSize=11).encode(text="nhãn:N"))
+        st.altair_chart((arc + lab).properties(height=300), use_container_width=True)
 
     st.subheader("Độ chính xác theo nền tảng AI tìm kiếm")
     st.dataframe(_bang_dcx("Nền tảng", sorted(f["Nền tảng"].unique())), use_container_width=True)
