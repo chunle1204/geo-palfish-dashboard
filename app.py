@@ -113,7 +113,10 @@ MAU_CX = ["#2E7D32", "#F9A825", "#C62828", "#90A4AE", "#CFD8DC"]
 MAU_MUC = {"P0": "#C62828", "P1": "#F9A825", "P2": "#90A4AE"}
 DOMAIN_RE = re.compile(r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9\-.]+\.[a-z]{2,})", re.I)
 
-st.set_page_config(page_title="GEO PalFish · Báo cáo giám sát AI", page_icon="🐟", layout="wide")
+# Icon con cá lấy từ favicon chính thức của palfish.vn (rel="icon").
+PALFISH_ICON = "https://palfish.vn/wp-content/uploads/2022/07/Group-1-1.svg"
+st.set_page_config(page_title="GEO PalFish · Báo cáo giám sát AI",
+                   page_icon=PALFISH_ICON, layout="wide")
 
 
 # ------------------------------------------------------------------ tải & chuẩn hoá
