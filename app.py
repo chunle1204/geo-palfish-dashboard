@@ -20,7 +20,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-import i18n
+import dash_lang as i18n
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -1051,4 +1051,3 @@ with tab_bc:
         with st.expander(T("Xem dạng văn bản thô (để copy sang email / chat)")):
             st.code(txt, language="markdown")
 
-# i18n deploy nudge
