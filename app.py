@@ -577,6 +577,31 @@ st.markdown(
     f"[tab 3 — Issue tracker]({_sheet_url}#gid={SHEET_GID_ISSUE})"
 )
 
+with st.expander("ℹ️ Giới thiệu & cách đọc dashboard"):
+    st.markdown(
+        "**Dashboard này làm gì**  \n"
+        "Theo dõi cách các nền tảng AI (ChatGPT, Gemini, AI Google, Perplexity) trả lời "
+        "khi người dùng hỏi về PalFish Việt Nam.\n\n"
+        "**Cách chấm**  \n"
+        "Mỗi đợt đánh giá: hỏi 4 nền tảng **20 câu hỏi cố định** (xem “Chú giải” bên dưới), "
+        "mỗi câu 3 lần. Đối chiếu từng câu trả lời với **bộ thông tin thương hiệu PalFish đã "
+        "được duyệt** rồi chấm: Đúng / Đúng một phần / Sai / Không có thông tin.\n\n"
+        "**Hiểu các con số**\n"
+        "- **Lượt kiểm tra** = 1 lần hỏi 1 câu trên 1 nền tảng.\n"
+        "- **Ý lỗi** = 1 điểm sai cụ thể trong câu trả lời. Một lượt có thể dính nhiều ý lỗi "
+        "→ tổng ý lỗi thường lớn hơn số câu sai.\n"
+        "- **Mã lỗi PF‑xxx** = một loại lỗi đã được đặt tên (PF = *PalFish*). Tên + mô tả ở "
+        "tab **Danh mục lỗi**.\n"
+        "- **Mức P0 / P1 / P2**: P0 = nghiêm trọng, cần sửa gấp · P1 = quan trọng · "
+        "P2 = tối ưu dài hạn.\n\n"
+        "**Ai xử lý lỗi** (tab *Trạng thái xử lý lỗi*)\n"
+        "- **Mai** — sửa nội dung, cập nhật kênh chính thống.\n"
+        "- **IT‑Minh** — sửa kỹ thuật website (redirect, schema, tên miền).\n"
+        "- **Josh** — duyệt thông điệp & xử lý vấn đề lớn (nguồn gốc thương hiệu, pháp nhân).\n\n"
+        "**Đợt đánh giá (“mốc”)**: mỗi lần đo là một mốc. Hiện mới có mốc đầu (*Baseline*); "
+        "biểu đồ xu hướng sẽ hiện khi có mốc thứ 2."
+    )
+
 if f.empty:
     st.warning("Không có dòng nào khớp bộ lọc.")
     st.stop()
@@ -757,6 +782,9 @@ with tab_pf:
         ).properties(height=300), use_container_width=True)
 
 with tab_ng:
+    st.caption("Những nguồn AI dựa vào khi trả lời. **“Nguồn phát sinh thông tin sai”** = nơi AI "
+               "học thông tin không đúng (Baidu, trang review nước ngoài, tin crypto…) — xử lý "
+               "hoặc tạo nguồn chính thống đối trọng sẽ giảm lỗi.")
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Tên miền AI thường trích dẫn")
@@ -796,8 +824,9 @@ with tab_ng:
     st.dataframe(gnt.reset_index(), use_container_width=True, hide_index=True)
 
 with tab_tt:
-    st.caption("Đọc trực tiếp tab “3 Issue tracker” trong Google Sheet — cập nhật khi bạn "
-               "đổi cột Trạng thái trong sheet. (Bộ lọc bên trái không áp dụng ở tab này.)")
+    st.caption("Tình trạng xử lý từng lỗi. Người phụ trách: **Mai** = nội dung · "
+               "**IT‑Minh** = kỹ thuật website · **Josh** = duyệt / vấn đề lớn. "
+               "Lỗi đóng khi test lại 3 lần, hết ở ≥ 2/3 lần. (Bộ lọc bên trái không áp dụng ở tab này.)")
     if issue.empty:
         st.info("Chưa đọc được tab “3 Issue tracker” (kiểm tra Sheet đã bật quyền xem, "
                 "hoặc bạn đang trỏ tới một Sheet khác).")
