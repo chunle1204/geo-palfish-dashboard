@@ -567,29 +567,14 @@ with tab_pf:
     if daca.empty:
         st.info("Chưa có lượt nào được chấm trong phạm vi lọc.")
     else:
-        d1, d2 = st.columns(2)
-        with d1:
-            st.caption("Số lỗi trên mỗi lượt trả lời (bao nhiêu lượt có 0 lỗi, 1 lỗi, 2 lỗi…)")
-            dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
-                    .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
-            st.altair_chart(alt.Chart(dist).mark_bar().encode(
-                x=alt.X("Số lỗi / lượt:O"),
-                y=alt.Y("Số lượt:Q"),
-                tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
-            ).properties(height=300), use_container_width=True)
-        with d2:
-            st.caption("Phân bố theo nhóm chủ đề lỗi (cột “Loại lỗi” trong sheet)")
-            loai = pd.Series([p.strip() for s in f["Loại lỗi"]
-                              for p in re.split(r";", str(s)) if p.strip()])
-            if loai.empty:
-                st.info("Cột “Loại lỗi” đang trống.")
-            else:
-                vc = loai.value_counts().rename_axis("Nhóm chủ đề").reset_index(name="Số lượt")
-                st.altair_chart(alt.Chart(vc).mark_bar().encode(
-                    x=alt.X("Số lượt:Q"),
-                    y=alt.Y("Nhóm chủ đề:N", sort="-x", title=None),
-                    tooltip=["Nhóm chủ đề:N", "Số lượt:Q"],
-                ).properties(height=max(200, 26 * len(vc))), use_container_width=True)
+        st.caption("Số lỗi trên mỗi lượt trả lời (bao nhiêu lượt có 0 lỗi, 1 lỗi, 2 lỗi…)")
+        dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
+                .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
+        st.altair_chart(alt.Chart(dist).mark_bar().encode(
+            x=alt.X("Số lỗi / lượt:O"),
+            y=alt.Y("Số lượt:Q"),
+            tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
+        ).properties(height=300), use_container_width=True)
 
 with tab_ng:
     c1, c2 = st.columns(2)
