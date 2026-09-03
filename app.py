@@ -324,18 +324,19 @@ tab_tq, tab_pr, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
 )
 
 with tab_tq:
-    c1, c2 = st.columns([3, 2])
     _RGB_CX = {"Đúng": (46, 125, 50), "Đúng một phần": (249, 168, 37), "Sai": (198, 40, 40),
                "Không có thông tin": (144, 164, 174), "Chưa chấm được": (207, 216, 220)}
-    with c1:
-        st.subheader("Độ chính xác theo nhóm câu hỏi")
+
+    def _bang_dcx(group_col, order=None):
         _b = pd.Categorical(f["Độ chính xác"], BAC_CX, ordered=True)
-        cnt = (f.assign(_b=_b).groupby(["Nhóm prompt", "_b"], observed=False)
-               .size().unstack(fill_value=0).reindex(NHOM_ORDER, fill_value=0))[BAC_CX]
+        cnt = (f.assign(_b=_b).groupby([group_col, "_b"], observed=False)
+               .size().unstack(fill_value=0))
+        cnt = cnt.reindex(order, fill_value=0) if order else cnt
+        cnt = cnt[BAC_CX]
         cnt["Tổng"] = cnt.sum(axis=1)
-        _tong = cnt.sum(axis=0)
-        _tong.name = "TỔNG CỘNG"
-        cnt = pd.concat([cnt, _tong.to_frame().T])
+        _t = cnt.sum(axis=0)
+        _t.name = "TỔNG CỘNG"
+        cnt = pd.concat([cnt, _t.to_frame().T])
         pct = cnt[BAC_CX].div(cnt["Tổng"].replace(0, 1), axis=0)
         disp = cnt.astype(object)
         for _c in BAC_CX:
@@ -343,7 +344,7 @@ with tab_tq:
                         + (pct[_c] * 100).round().astype(int).astype(str) + "%)")
         disp["% Đúng"] = (pct["Đúng"] * 100).round().astype(int).astype(str) + "%"
 
-        def _style_tbl(_):
+        def _sty(_):
             s = pd.DataFrame("", index=disp.index, columns=disp.columns)
             for _c in BAC_CX:
                 r, gg, b = _RGB_CX[_c]
@@ -353,10 +354,15 @@ with tab_tq:
             s.loc["TỔNG CỘNG"] = s.loc["TỔNG CỘNG"].str.rstrip(";") + "; font-weight:700"
             return s
 
-        st.dataframe(disp.style.apply(_style_tbl, axis=None), use_container_width=True)
+        return disp.style.apply(_sty, axis=None)
+
+    c1, c2 = st.columns([5, 2])
+    with c1:
+        st.subheader("Độ chính xác theo nhóm câu hỏi")
+        st.dataframe(_bang_dcx("Nhóm prompt", NHOM_ORDER), use_container_width=True)
         st.caption("Mỗi ô: số câu (tỷ lệ trong nhóm). Màu càng đậm = tỷ lệ ở mức đó càng cao.")
     with c2:
-        st.subheader("Tỷ lệ độ chính xác (tổng)")
+        st.subheader("Tỷ lệ tổng")
         dd = (f["Độ chính xác"].value_counts().reindex(BAC_CX, fill_value=0)
               .rename_axis("Độ chính xác").reset_index(name="Số câu"))
         _tot = int(dd["Số câu"].sum()) or 1
@@ -366,15 +372,18 @@ with tab_tq:
         base = alt.Chart(dd).encode(
             theta=alt.Theta("Số câu:Q", stack=True),
             order=alt.Order("_o:Q"),
-            color=alt.Color("Độ chính xác:N", sort=BAC_CX, title=None,
-                            scale=alt.Scale(domain=BAC_CX, range=MAU_CX)),
+            color=alt.Color("Độ chính xác:N", sort=BAC_CX, legend=alt.Legend(orient="bottom"),
+                            title=None, scale=alt.Scale(domain=BAC_CX, range=MAU_CX)),
         )
-        arc = base.mark_arc(innerRadius=45, outerRadius=95)
+        arc = base.mark_arc(innerRadius=28, outerRadius=58)
         lab = (base.transform_filter("datum['Số câu'] > 0")
-               .mark_text(radius=118, fontSize=11).encode(text="nhãn:N"))
-        st.altair_chart((arc + lab).properties(height=300), use_container_width=True)
-        st.metric("Lẫn thông tin nước ngoài / lỗi thời",
-                  f"{(f['Trộn nước ngoài'] != 'Không').mean():.0%} lượt")
+               .mark_text(radius=72, fontSize=9).encode(text="nhãn:N"))
+        st.altair_chart((arc + lab).properties(height=200), use_container_width=True)
+
+    st.subheader("Độ chính xác theo nền tảng AI tìm kiếm")
+    st.dataframe(_bang_dcx("Nền tảng", sorted(f["Nền tảng"].unique())), use_container_width=True)
+    st.metric("Lẫn thông tin nước ngoài / lỗi thời",
+              f"{(f['Trộn nước ngoài'] != 'Không').mean():.0%} lượt")
 
     if f["Mốc"].nunique() > 1:
         st.subheader("Xu hướng qua các mốc đánh giá")
