@@ -45,6 +45,53 @@ PF_MUC = {
     "PF-017": "P2", "PF-018": "P1", "PF-019": "P1", "PF-020": "P1",
     "PF-021": "P2", "PF-022": "P1", "PF-023": "P1",
 }
+# Tên gọi ngắn cho từng mã lỗi (hiện kèm mã ở chú thích biểu đồ / bộ lọc).
+PF_TEN = {
+    "PF-001": "Schema tên tổ chức", "PF-002": "Tên thương hiệu",
+    "PF-003": "Số liệu trang chủ", "PF-004": "Ngôn ngữ site",
+    "PF-005": "Email Gmail", "PF-006": "Thiếu địa chỉ HCM",
+    "PF-007": "Thiếu pháp nhân", "PF-008": "Sitemap lỗi thời",
+    "PF-009": "Độ tuổi", "PF-010": "Nguồn không chuẩn",
+    "PF-011": "Nguồn gốc", "PF-012": "Pháp nhân",
+    "PF-013": "Địa chỉ HCM", "PF-014": "Trang lỗi thời",
+    "PF-015": "Số quốc gia", "PF-016": "Liên hệ tuyển dụng",
+    "PF-017": "Giáo viên bản ngữ", "PF-018": "Tên sản phẩm",
+    "PF-019": "Học phí", "PF-020": "Review lỗi thời",
+    "PF-021": "Không nguồn", "PF-022": "Bịa tính năng",
+    "PF-023": "Địa chỉ chi nhánh",
+}
+# Diễn giải một dòng — dùng cho bảng "Danh mục lỗi".
+PF_MOTA = {
+    "PF-001": "JSON-LD trang chủ khai tên tổ chức là \"admin1\".",
+    "PF-002": "Lẫn lộn Palfish / PALFISH / \"Palfish Class\" / \"PalFishclassVN\".",
+    "PF-003": "3 ô đếm (60tr / 163 QG / 50k GV) hiện \"0+\" khi tắt JavaScript.",
+    "PF-004": "og:locale / inLanguage = en-US dù là site tiếng Việt.",
+    "PF-005": "Email chính thức là palfishjsc@gmail.com thay vì email tên miền.",
+    "PF-006": "palfish.vn chỉ đăng 2 địa chỉ Hà Nội, không có TP.HCM.",
+    "PF-007": "Không có tên công ty đầy đủ + MST ở trang chủ / liên hệ / footer.",
+    "PF-008": "Sitemap ~200 URL, nhiều trang cũ từ 2023, cập nhật cuối 10/2024.",
+    "PF-009": "AI trả lời độ tuổi 3–15 / 4–12 / 2–15; chuẩn là 3–12.",
+    "PF-010": "AI trích domain lạ: palfish.com.vn, intpalfish.com, gói Google Play cn.xckj…",
+    "PF-011": "AI khẳng định PalFish thành lập ở Bắc Kinh; chuẩn: trụ sở Singapore.",
+    "PF-012": "3 pháp nhân + đối tác TTL; AI không rõ bên nào chịu trách nhiệm.",
+    "PF-013": "AI nói VP HCM là 157–159 Nguyễn Thị Thập; \"25\" là địa chỉ đối tác TTL.",
+    "PF-014": "Trích hocthu.palfish.vn + hotline cũ 0982 520 521; chuẩn: learn.palfish.vn/triallesson, 0962 023 416.",
+    "PF-015": "Số quốc gia không nhất quán: 163 / 160+ / 200+, lệch cả trong cùng nền tảng.",
+    "PF-016": "AI ghi email tuyển dụng palfishrecruitment@gmail.com; chuẩn: hr@palfishhcm.com.",
+    "PF-017": "\"100% giáo viên bản ngữ\" mâu thuẫn doc Mai §4.5 (\"20% hình GV Philippines\").",
+    "PF-018": "AI gọi sản phẩm đọc là \"PalFish Reading\"; tên đúng tại VN là \"PalFish English\".",
+    "PF-019": "AI đưa giá cụ thể (150–250k/buổi, gói 53 tiết ~9,8 triệu); giá không công khai.",
+    "PF-020": "AI trích reddit \"has_palfish_imploded\" (2021), Glassdoor, App Store US — lỗi thời.",
+    "PF-021": "AI trả lời về PalFish mà không dẫn kênh chính thức nào.",
+    "PF-022": "AI bịa \"học nhóm / CLB đọc sách / livestream\" mà PalFish English VN không có.",
+    "PF-023": "Địa chỉ VP chi nhánh \"Imperia Garden\" không khớp: 203 Nguyễn Huy Tưởng vs 143 Nguyễn Tuân.",
+}
+
+
+def pf_nhan(ma: str) -> str:
+    """PF-011 -> 'PF-011 (Nguồn gốc)'."""
+    ten = PF_TEN.get(ma)
+    return f"{ma} ({ten})" if ten else ma
 # 9 nhóm chi tiết theo Prompt ID (mịn hơn 4 nhóm gốc)
 NHOM_PROMPT = {
     **{f"P{n:02d}": "Pháp nhân & nhận diện" for n in range(1, 5)},
@@ -189,10 +236,10 @@ def bang_pf(fr: pd.DataFrame) -> pd.DataFrame:
     ex = fr.explode("_pf")
     ex = ex[ex["_pf"].notna() & ex["_pf"].ne("")]
     for ma, grp in ex.groupby("_pf"):
-        loai = grp["Loại lỗi"].replace("", pd.NA).dropna()
         rows.append({
             "Mã": ma,
-            "Loại lỗi": (loai.mode().iat[0] if not loai.empty else ""),
+            "Tên lỗi": PF_TEN.get(ma, ""),
+            "Mô tả": PF_MOTA.get(ma, ""),
             "Mức": PF_MUC.get(ma, "?"),
             "Số lượt": len(grp),
             "Nền tảng dính": ", ".join(sorted(grp["Nền tảng"].unique())),
@@ -253,11 +300,14 @@ def _bd_pf_theo_nhom(fr: pd.DataFrame, group_col: str, order: list[str]):
     ex = fr.explode("_pf")
     ex = ex[ex["_pf"].astype(str).str.startswith("PF-")]
     d = ex.groupby([group_col, "_pf"], observed=True).size().reset_index(name="Số lượt")
+    d["Mã lỗi"] = d["_pf"].map(pf_nhan)
+    thu_tu = [pf_nhan(m) for m in sorted(d["_pf"].unique())]
     return alt.Chart(d).mark_bar().encode(
         x=alt.X("Số lượt:Q", title="Số lượt dính"),
         y=_y_nhom(group_col, order),
-        color=alt.Color("_pf:N", title="Mã lỗi", legend=alt.Legend(orient="bottom", columns=8)),
-        tooltip=[alt.Tooltip(f"{group_col}:N", title="Nhóm"), "_pf:N", "Số lượt:Q"],
+        color=alt.Color("Mã lỗi:N", sort=thu_tu,
+                        legend=alt.Legend(orient="bottom", columns=3, title="Mã lỗi")),
+        tooltip=[alt.Tooltip(f"{group_col}:N", title="Nhóm"), "Mã lỗi:N", "Số lượt:Q"],
     ).properties(height=_cao(len(order)))
 
 
@@ -278,8 +328,8 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict) -> str:
         f"- Tổng số lỗi ghi nhận: {k['tong_loi']} · lượt dính P0: {k['p0']}",
         "",
         "## Lỗi theo mức",
-        f"- P0: {', '.join(p0) or '—'}",
-        f"- P1: {', '.join(p1) or '—'}",
+        f"- P0: {', '.join(pf_nhan(x) for x in p0) or '—'}",
+        f"- P1: {', '.join(pf_nhan(x) for x in p1) or '—'}",
         "",
         "## Lỗi đã đóng (đã test lại đạt)",
         "- …",
@@ -338,6 +388,7 @@ with st.sidebar:
         f_ngay = None
 
     f_loi = st.multiselect("Mã lỗi (PF)", sorted({x for lst in df["_pf"] for x in lst}),
+                           format_func=pf_nhan,
                            help="Chọn ≥1 mã để chỉ xem lượt có mã đó")
 
 f = df[df["Mốc"].isin(f_moc) & df["Nền tảng"].isin(f_nt)
@@ -495,65 +546,37 @@ with tab_nt:
     st.dataframe(gnt.reset_index(), use_container_width=True, hide_index=True)
 
 with tab_pf:
-    st.subheader("Tần suất theo mã lỗi")
+    st.subheader("Danh mục & tần suất mã lỗi")
     bpf = bang_pf(f)
     if bpf.empty:
         st.info("Không có mã PF nào trong phạm vi lọc.")
     else:
-        st.altair_chart(alt.Chart(bpf).mark_bar().encode(
+        bpf_c = bpf.assign(**{"Mã lỗi": bpf["Mã"].map(pf_nhan)})
+        st.altair_chart(alt.Chart(bpf_c).mark_bar().encode(
             x=alt.X("Số lượt:Q"),
-            y=alt.Y("Mã:N", sort="-x", title=None),
+            y=alt.Y("Mã lỗi:N", sort="-x", title=None),
             color=alt.Color("Mức:N", scale=alt.Scale(domain=list(MAU_MUC), range=list(MAU_MUC.values()))),
-            tooltip=["Mã:N", "Loại lỗi:N", "Mức:N", "Số lượt:Q", "Nền tảng dính:N", "Prompt:N"],
+            tooltip=["Mã:N", "Tên lỗi:N", "Mô tả:N", "Mức:N", "Số lượt:Q",
+                     "Nền tảng dính:N", "Prompt:N"],
         ).properties(height=max(200, 26 * len(bpf))), use_container_width=True)
-        st.dataframe(bpf, use_container_width=True, hide_index=True)
+        st.caption("Bảng dưới: giải thích từng mã lỗi là gì.")
+        st.dataframe(bpf, use_container_width=True, hide_index=True,
+                     column_config={"Mô tả": st.column_config.TextColumn(width="large")})
 
     st.divider()
-    st.subheader("Phân bố lỗi")
+    st.subheader("Số lỗi trên mỗi lượt trả lời")
     daca = f[f["Độ chính xác"].isin(["Đúng", "Đúng một phần", "Sai", "Không có thông tin"])]
     if daca.empty:
         st.info("Chưa có lượt nào được chấm trong phạm vi lọc.")
     else:
-        d1, d2 = st.columns(2)
-        with d1:
-            st.caption("Số lỗi trên mỗi lượt trả lời (đã đánh giá)")
-            dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
-                    .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
-            st.altair_chart(alt.Chart(dist).mark_bar().encode(
-                x=alt.X("Số lỗi / lượt:O"),
-                y=alt.Y("Số lượt:Q"),
-                tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
-            ).properties(height=300), use_container_width=True)
-        with d2:
-            st.caption("Phân bố theo loại lỗi")
-            loai = pd.Series([p.strip() for s in f["Loại lỗi"]
-                              for p in re.split(r";", str(s)) if p.strip()])
-            if loai.empty:
-                st.info("Cột 'Loại lỗi' đang trống.")
-            else:
-                vc = loai.value_counts().rename_axis("Loại lỗi").reset_index(name="Số lượt")
-                st.altair_chart(alt.Chart(vc).mark_bar().encode(
-                    x=alt.X("Số lượt:Q"),
-                    y=alt.Y("Loại lỗi:N", sort="-x", title=None),
-                    tooltip=["Loại lỗi:N", "Số lượt:Q"],
-                ).properties(height=max(200, 26 * len(vc))), use_container_width=True)
-
-        st.caption("Số lỗi theo mức ưu tiên và nền tảng")
-        ex = f.explode("_pf")
-        ex = ex[ex["_pf"].notna() & ex["_pf"].astype(str).str.startswith("PF-")]
-        if ex.empty:
-            st.info("Không có mã PF nào.")
-        else:
-            ex = ex.assign(Mức=ex["_pf"].map(PF_MUC).fillna("?"))
-            gm = ex.groupby(["Nền tảng", "Mức"]).size().reset_index(name="Số lỗi")
-            st.altair_chart(alt.Chart(gm).mark_bar().encode(
-                x=alt.X("Nền tảng:N", title=None),
-                y=alt.Y("Số lỗi:Q"),
-                color=alt.Color("Mức:N", sort=list(MAU_MUC),
-                                scale=alt.Scale(domain=list(MAU_MUC), range=list(MAU_MUC.values()))),
-                order=alt.Order("Mức:N"),
-                tooltip=["Nền tảng:N", "Mức:N", "Số lỗi:Q"],
-            ).properties(height=320), use_container_width=True)
+        dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
+                .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
+        st.altair_chart(alt.Chart(dist).mark_bar().encode(
+            x=alt.X("Số lỗi / lượt:O"),
+            y=alt.Y("Số lượt:Q"),
+            tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
+        ).properties(height=280), use_container_width=True)
+        st.caption("Bao nhiêu lượt trả lời có 0 lỗi, 1 lỗi, 2 lỗi…")
 
 with tab_ng:
     c1, c2 = st.columns(2)
@@ -582,15 +605,8 @@ with tab_ng:
                 tooltip=["Nguồn:N", "Số lượt:Q"],
             ).properties(height=max(200, 24 * len(vc))), use_container_width=True)
 
-    st.subheader("Tỷ lệ trích dẫn kênh chính thống theo nền tảng")
-    g = f.groupby("Nền tảng").agg(
-        **{"Số lượt": ("Prompt ID", "size")},
-        **{"Tỷ lệ trích palfish.vn": ("Trích palfish.vn", "mean")},
-        **{"Tỷ lệ có kênh chính thống": ("Kênh chính thống khác", "mean")},
-    ).reset_index()
-    for c in ("Tỷ lệ trích palfish.vn", "Tỷ lệ có kênh chính thống"):
-        g[c] = (g[c] * 100).round().astype(int).astype(str) + "%"
-    st.dataframe(g, use_container_width=True, hide_index=True)
+    st.caption("Tỷ lệ trích palfish.vn / kênh chính thống theo từng nền tảng: "
+               "xem bảng “Hành vi trích dẫn nguồn theo nền tảng” ở tab Phân tích theo nền tảng.")
 
 with tab_ct:
     st.subheader("Toàn bộ lượt kiểm tra")
@@ -604,8 +620,9 @@ with tab_ct:
     idx = st.selectbox("Chọn lượt kiểm tra", options=list(f.index), format_func=lambda i: nhan[i])
     r = f.loc[idx]
     st.markdown(f"**{r['Nền tảng']} — {r['Prompt ID']}** · {r['Nhóm prompt']} · "
-                f"độ chính xác: **{r['Độ chính xác']}** · số lỗi: **{int(r['Số lỗi'])}** "
-                f"· mã: {', '.join(r['_pf']) or '—'}")
+                f"độ chính xác: **{r['Độ chính xác']}** · số lỗi: **{int(r['Số lỗi'])}**")
+    if r["_pf"]:
+        st.markdown("\n".join(f"- **{pf_nhan(x)}** — {PF_MOTA.get(x, '')}" for x in r["_pf"]))
     if r["Đoạn có vấn đề"]:
         st.error(f"**Nội dung có vấn đề:** {r['Đoạn có vấn đề']}")
     if r["Nguồn thông tin sai"]:
