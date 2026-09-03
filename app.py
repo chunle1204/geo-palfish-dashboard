@@ -110,6 +110,29 @@ NHOM_PROMPT = {
 NHOM_ORDER = ["Pháp nhân & nhận diện", "Địa chỉ văn phòng", "Liên hệ & đăng ký học thử",
               "Độ tuổi & hình thức học", "Giáo viên", "Giáo trình & khóa học", "Học phí",
               "Uy tín & đánh giá phụ huynh", "So sánh & quy mô & báo chí"]
+# 20 câu hỏi cố định dùng để prompt (nguyên văn — không đổi).
+CAU_HOI = {
+    "Q01": "PalFish Việt Nam là gì?",
+    "Q02": "Website chính thức của PalFish Việt Nam là gì?",
+    "Q03": "PalFish tại Việt Nam do công ty nào vận hành?",
+    "Q04": "PalFish là thương hiệu của nước nào, có liên hệ gì với PalFish Singapore hoặc PalFish toàn cầu?",
+    "Q05": "Địa chỉ văn phòng của PalFish ở Hà Nội là gì?",
+    "Q06": "PalFish có văn phòng ở TP. Hồ Chí Minh không? Địa chỉ ở đâu?",
+    "Q07": "Số điện thoại và email liên hệ của PalFish Việt Nam là gì?",
+    "Q08": "Làm sao để đăng ký học thử với PalFish?",
+    "Q09": "PalFish dành cho trẻ em độ tuổi nào?",
+    "Q10": "PalFish dạy theo hình thức 1 kèm 1 hay lớp nhóm?",
+    "Q11": "Giáo viên của PalFish là ai, có phải người bản ngữ không, đến từ đâu?",
+    "Q12": "PalFish có những khóa học / giáo trình tiếng Anh nào cho trẻ em?",
+    "Q13": "Học phí học tại PalFish khoảng bao nhiêu, có những gói nào?",
+    "Q14": "Một buổi học ở PalFish diễn ra như thế nào, app học có gì?",
+    "Q15": "PalFish có uy tín không, có đáng cho con học không?",
+    "Q16": "Đánh giá của phụ huynh về PalFish thế nào? Có phản hồi tiêu cực nào không?",
+    "Q17": "PalFish khác gì so với các nền tảng học tiếng Anh 1 kèm 1 cho trẻ khác?",
+    "Q18": "Ưu điểm và nhược điểm của PalFish là gì?",
+    "Q19": "PalFish hoạt động ở Việt Nam bao lâu rồi, quy mô thế nào (số học viên, số giáo viên)?",
+    "Q20": "PalFish có được báo chí hoặc tổ chức giáo dục nào nói đến / chứng nhận không?",
+}
 MOC_ORDER = ["Baseline", "Cuối T1", "Cuối T2", "Test lại"]
 BAC_CX = ["Đúng", "Đúng một phần", "Sai", "Không có thông tin", "Chưa chấm được"]
 MAU_CX = ["#2E7D32", "#F9A825", "#C62828", "#90A4AE", "#CFD8DC"]
@@ -664,6 +687,16 @@ with tab_tq:
 with tab_pr:
     st.caption("Cùng 9 nhóm câu hỏi như bảng “Độ chính xác theo nhóm câu hỏi” ở tab Tổng quan, "
                "sắp xếp theo đúng thứ tự đó.")
+
+    with st.expander("📋 Chú giải: 20 câu hỏi prompt & 9 nhóm"):
+        _rows_ch = []
+        for _nh in NHOM_ORDER:
+            for _q in sorted(m for m, g in NHOM_PROMPT.items() if g == _nh):
+                _rows_ch.append({"Nhóm": _nh, "Mã": _q, "Câu hỏi": CAU_HOI.get(_q, "")})
+        st.dataframe(pd.DataFrame(_rows_ch), use_container_width=True, hide_index=True,
+                     column_config={"Câu hỏi": st.column_config.TextColumn(width="large")})
+        st.caption("20 câu hỏi cố định (nguyên văn — không đổi giữa các mốc). "
+                   "Nguồn: tab “20 Prompt” trong Google Sheet.")
 
     st.subheader("Tỷ lệ độ chính xác theo nhóm câu hỏi")
     st.altair_chart(_bd_ty_le_cx(f, "Nhóm prompt", NHOM_ORDER), use_container_width=True)
