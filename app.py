@@ -253,12 +253,14 @@ def bang_pf(fr: pd.DataFrame) -> pd.DataFrame:
 
 # Trục Y dùng chung cho mọi biểu đồ phân tích: hiện ĐỦ nhãn, không cắt chữ.
 def _y_nhom(group_col: str, order: list[str]):
-    return alt.Y(f"{group_col}:N", sort=order, scale=alt.Scale(domain=order),
-                 axis=alt.Axis(labelOverlap=False, labelLimit=260, title=None))
+    return alt.Y(f"{group_col}:N", sort=order,
+                 scale=alt.Scale(domain=order, paddingInner=0.3, paddingOuter=0.15),
+                 axis=alt.Axis(labelOverlap=False, labelLimit=260, title=None,
+                               labelFontSize=12, labelPadding=6))
 
 
 def _cao(n: int) -> int:
-    return max(200, 34 * n)
+    return max(280, 58 * n)
 
 
 def _bd_ty_le_cx(fr: pd.DataFrame, group_col: str, order: list[str]):
@@ -306,7 +308,8 @@ def _bd_pf_theo_nhom(fr: pd.DataFrame, group_col: str, order: list[str]):
         x=alt.X("Số lượt:Q", title="Số lượt dính"),
         y=_y_nhom(group_col, order),
         color=alt.Color("Mã lỗi:N", sort=thu_tu,
-                        legend=alt.Legend(orient="bottom", columns=3, title="Mã lỗi")),
+                        legend=alt.Legend(orient="right", columns=1, title="Mã lỗi",
+                                          symbolLimit=0)),
         tooltip=[alt.Tooltip(f"{group_col}:N", title="Nhóm"), "Mã lỗi:N", "Số lượt:Q"],
     ).properties(height=_cao(len(order)))
 
