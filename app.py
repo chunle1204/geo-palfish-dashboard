@@ -470,11 +470,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
                          kk["tong_loi"]])
         L += [_md_bang(["Mốc", "Lượt", "Tỷ lệ đúng", "Tỷ lệ xuất hiện", "Tổng lỗi"], rows), ""]
 
-    L += ["**6. Việc cần làm (điền tay)**",
-          "- Lỗi đã test lại đạt (đóng trong kỳ): …",
-          "- Đề xuất cho Content / IT: …",
-          "- Cần Josh / Jacob quyết: …"]
-    return "\n".join(L)
+    return "\n".join(L).rstrip()
 
 
 # ------------------------------------------------------------------ giao diện
