@@ -1,0 +1,498 @@
+"""
+GEO PalFish VN — Dashboard theo dõi kiểm tra AI
+================================================
+Đọc TRỰC TIẾP tab "4a Nhat ky luot chay" từ Google Sheet.
+Sheet đổi -> dashboard tự cập nhật (cache 2 phút + nút làm mới + tự refresh).
+
+Chạy:
+    pip install -r requirements.txt
+    streamlit run app.py
+
+YÊU CẦU: Google Sheet phải cho xem công khai:
+    Chia sẻ -> "Bất kỳ ai có đường liên kết" -> Người xem
+(không cần cho chỉnh sửa; dashboard chỉ đọc)
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import io
+import re
+from urllib.request import Request, urlopen
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+except Exception:  # thư viện phụ, không có cũng chạy được
+    st_autorefresh = None
+
+# ------------------------------------------------------------------ cấu hình
+SHEET_ID_MAC_DINH = "172WzrO47njz-fMmi035PcmmVBTcaR2PIXg_GeaDBbNY"
+SHEET_GID_MAC_DINH = "1347201081"          # tab "4a Nhat ky luot chay"
+SHEET_TEN = "4a Nhat ky luot chay"
+TTL = 120                                  # giây — hết hạn thì tải lại sheet
+
+# Mức ưu tiên từng mã lỗi (KHÔNG có trong sheet 4a -> khai ở đây).
+# Nguồn: bản chấm baseline + tab "3 Issue tracker".
+PF_MUC = {
+    "PF-001": "P0", "PF-002": "P1", "PF-003": "P1", "PF-004": "P1",
+    "PF-005": "P1", "PF-006": "P1", "PF-007": "P0", "PF-008": "P1",
+    "PF-009": "P1", "PF-010": "P1", "PF-011": "P0", "PF-012": "P0",
+    "PF-013": "P0", "PF-014": "P1", "PF-015": "P1", "PF-016": "P2",
+    "PF-017": "P2", "PF-018": "P1", "PF-019": "P1", "PF-020": "P1",
+    "PF-021": "P2", "PF-022": "P1", "PF-023": "P1",
+}
+NHOM_PROMPT = {
+    **{f"P{n:02d}": "Nhận diện & pháp nhân" for n in range(1, 5)},
+    **{f"P{n:02d}": "Liên hệ & địa điểm" for n in range(5, 9)},
+    **{f"P{n:02d}": "Sản phẩm & khóa học" for n in range(9, 15)},
+    **{f"P{n:02d}": "Tin cậy & đánh giá" for n in range(15, 21)},
+}
+MOC_ORDER = ["Baseline", "Cuối T1", "Cuối T2", "Test lại"]
+BAC_CX = ["Đúng", "Đúng một phần", "Sai", "Không có thông tin", "Chưa chấm được"]
+MAU_CX = ["#2E7D32", "#F9A825", "#C62828", "#90A4AE", "#CFD8DC"]
+MAU_MUC = {"P0": "#C62828", "P1": "#F9A825", "P2": "#90A4AE"}
+DOMAIN_RE = re.compile(r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9\-.]+\.[a-z]{2,})", re.I)
+
+st.set_page_config(page_title="GEO PalFish · Báo cáo giám sát AI", page_icon="🐟", layout="wide")
+
+
+# ------------------------------------------------------------------ tải & chuẩn hoá
+def tach_id_gid(text: str) -> tuple[str, str | None]:
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", text or "")
+    sid = m.group(1) if m else (text or "").strip()
+    g = re.search(r"[#&?]gid=(\d+)", text or "")
+    return sid, (g.group(1) if g else None)
+
+
+@st.cache_data(ttl=TTL, show_spinner="Đang tải dữ liệu từ Google Sheet…")
+def tai_4a(sheet_id: str, gid: str | None) -> tuple[pd.DataFrame, dt.datetime]:
+    base = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+    urls = []
+    if gid:
+        urls.append(f"{base}&gid={gid}")
+    urls.append(f"{base}&sheet={SHEET_TEN.replace(' ', '%20')}")
+    loi = None
+    for u in urls:
+        try:
+            req = Request(u, headers={"User-Agent": "Mozilla/5.0"})
+            raw = urlopen(req, timeout=30).read().decode("utf-8", "replace")
+            head = raw[:400].lower()
+            if "<html" in head or "<!doctype html" in head:
+                loi = ("Google trả về trang HTML (đăng nhập) thay vì dữ liệu.\n"
+                       "-> Mở Sheet -> Chia sẻ -> 'Bất kỳ ai có đường liên kết' -> Người xem.")
+                continue
+            df = pd.read_csv(io.StringIO(raw), dtype=str).fillna("")
+            if df.shape[1] < 6:
+                loi = "Đọc được nhưng thiếu cột — có thể sai tab/gid."
+                continue
+            return df, dt.datetime.now()
+        except Exception as e:  # noqa: BLE001
+            loi = str(e)
+    raise RuntimeError(loi or "Không tải được dữ liệu.")
+
+
+def col(df: pd.DataFrame, *subs: str) -> str | None:
+    for c in df.columns:
+        norm = str(c).strip().lower()
+        if all(s.lower() in norm for s in subs):
+            return c
+    return None
+
+
+def tach_domain(text: str) -> list[str]:
+    if not text:
+        return []
+    return [m.group(1).strip(".,);]").lower() for m in DOMAIN_RE.finditer(text)]
+
+
+@st.cache_data(ttl=TTL)
+def chuan_hoa(df: pd.DataFrame) -> pd.DataFrame:
+    def g(name: str | None) -> pd.Series:
+        if name and name in df.columns:
+            return df[name].astype(str).str.strip()
+        return pd.Series([""] * len(df), index=df.index)
+
+    o = pd.DataFrame(index=df.index)
+    o["Mốc"] = g(col(df, "mốc") or col(df, "moc")).replace("", "Baseline")
+    o["Nền tảng"] = g(col(df, "nền tảng") or col(df, "nen tang"))
+    o["Loại tài khoản"] = g(col(df, "tài kho") or col(df, "tai kho")).replace("", "(không ghi)")
+    o["Ngày chạy"] = pd.to_datetime(
+        g(col(df, "ngày chạy") or col(df, "ngay chay")), errors="coerce"
+    ).dt.date
+    o["Prompt ID"] = g(col(df, "prompt id") or col(df, "prompt")).str.upper()
+    o["Lần chạy"] = pd.to_numeric(g(col(df, "lần chạy") or col(df, "lan chay")), errors="coerce")
+    o["Câu trả lời"] = g(col(df, "câu trả lời") or col(df, "tra loi"))
+    o["Xuất hiện"] = g(col(df, "xuất hiện") or col(df, "xuat hien"))
+    o["Vị trí đề cập"] = g(col(df, "vị trí") or col(df, "vi tri"))
+    cx = g(col(df, "độ chính xác") or col(df, "chinh xac"))
+    o["Độ chính xác"] = cx.where(~cx.str.startswith("Chưa chấm"), "Chưa chấm được").replace("", "Chưa chấm được")
+    o["Loại lỗi"] = g(col(df, "loại lỗi") or col(df, "loai loi"))
+    o["_pf"] = g(col(df, "lỗi cụ thể") or col(df, "mã pf") or col(df, "ma pf")).apply(
+        lambda s: sorted(set(re.findall(r"PF-\d{3}", s)))
+    )
+    sl = pd.to_numeric(g(col(df, "số lỗi") or col(df, "so loi")), errors="coerce")
+    o["Số lỗi"] = sl.fillna(o["_pf"].apply(len)).astype(float)
+    o["Nguồn AI trích dẫn"] = g(col(df, "nguồn ai") or col(df, "nguon ai"))
+    tp = g(col(df, "trích palfish") or col(df, "palfish.vn")).str.lower()
+    o["Trích palfish.vn"] = tp.str.startswith("có") | tp.str.startswith("co")
+    kk = g(col(df, "kênh chính thống") or col(df, "kenh chinh")).str.lower()
+    o["Kênh chính thống khác"] = ~kk.isin(["", "không", "khong", "-", "nan", "n/a"])
+    tr = g(col(df, "trộn tt") or col(df, "nước ngoài") or col(df, "nuoc ngoai")).str.lower()
+    o["Trộn nước ngoài"] = tr.map(
+        lambda v: "Không" if v in ("", "không", "khong", "nan", "-")
+        else ("Nhẹ" if v.startswith("nh") else "Có")
+    )
+    o["Đoạn có vấn đề"] = g(col(df, "nguyên văn") or col(df, "đoạn có vấn đề") or col(df, "van de"))
+    o["Nguồn thông tin sai"] = g(col(df, "nguồn thông tin sai") or col(df, "nguon thong tin sai"))
+    o["Link bằng chứng"] = g(col(df, "bằng chứng") or col(df, "bang chung"))
+    o["Ghi chú"] = g(col(df, "ghi chú") or col(df, "ghi chu"))
+
+    o["Nhóm prompt"] = o["Prompt ID"].map(NHOM_PROMPT).fillna("Khác")
+    mask = o["Prompt ID"].str.match(r"^P\d\d$") & o["Câu trả lời"].str.len().gt(0)
+    return o[mask].reset_index(drop=True)
+
+
+# ------------------------------------------------------------------ tính toán
+def tinh_kpi(fr: pd.DataFrame) -> dict:
+    n = len(fr)
+    da_cham = fr["Độ chính xác"].isin(["Đúng", "Đúng một phần", "Sai", "Không có thông tin"])
+    return {
+        "n": n,
+        "xuat_hien": fr["Xuất hiện"].str.lower().str.startswith("có").mean() if n else 0.0,
+        "chinh_xac": (fr["Độ chính xác"].eq("Đúng").sum() / da_cham.sum()) if da_cham.sum() else 0.0,
+        "palfish": fr["Trích palfish.vn"].mean() if n else 0.0,
+        "kenh": (fr["Trích palfish.vn"] | fr["Kênh chính thống khác"]).mean() if n else 0.0,
+        "tong_loi": int(fr["Số lỗi"].sum()),
+        "p0": int(fr["_pf"].apply(lambda p: any(PF_MUC.get(x) == "P0" for x in p)).sum()),
+    }
+
+
+def bang_pf(fr: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    ex = fr.explode("_pf")
+    ex = ex[ex["_pf"].notna() & ex["_pf"].ne("")]
+    for ma, grp in ex.groupby("_pf"):
+        loai = grp["Loại lỗi"].replace("", pd.NA).dropna()
+        rows.append({
+            "Mã": ma,
+            "Loại lỗi": (loai.mode().iat[0] if not loai.empty else ""),
+            "Mức": PF_MUC.get(ma, "?"),
+            "Số lượt": len(grp),
+            "Nền tảng dính": ", ".join(sorted(grp["Nền tảng"].unique())),
+            "Prompt": ", ".join(sorted(grp["Prompt ID"].unique())),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(["Mức", "Số lượt"], ascending=[True, False]).reset_index(drop=True)
+
+
+def bao_cao_tuan(fr: pd.DataFrame, k: dict) -> str:
+    p0 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P0"})
+    p1 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P1"})
+    return "\n".join([
+        f"# Báo cáo giám sát GEO PalFish — {dt.date.today():%d/%m/%Y}",
+        "",
+        f"Phạm vi: mốc {', '.join(sorted(fr['Mốc'].unique()))} · {k['n']} lượt · "
+        f"nền tảng {', '.join(sorted(fr['Nền tảng'].unique()))}",
+        "",
+        "## Chỉ số",
+        f"- Tỷ lệ xuất hiện: {k['xuat_hien']:.0%}",
+        f"- Tỷ lệ chính xác (Đúng / đã chấm): {k['chinh_xac']:.0%}",
+        f"- Trích palfish.vn: {k['palfish']:.0%}",
+        f"- Có ≥1 kênh chính thống: {k['kenh']:.0%}",
+        f"- Tổng số lỗi ghi nhận: {k['tong_loi']} · lượt dính P0: {k['p0']}",
+        "",
+        "## Lỗi theo mức",
+        f"- P0: {', '.join(p0) or '—'}",
+        f"- P1: {', '.join(p1) or '—'}",
+        "",
+        "## Lỗi đã đóng (đã test lại đạt)",
+        "- …",
+        "",
+        "## Cần Josh / Jacob quyết",
+        "- …",
+    ])
+
+
+# ------------------------------------------------------------------ giao diện
+with st.sidebar:
+    st.header("Thiết lập & bộ lọc")
+    with st.expander("Nguồn dữ liệu"):
+        link = st.text_input("Liên kết Google Sheet (để trống dùng mặc định)", value="")
+        sid, gid = tach_id_gid(link) if link.strip() else (SHEET_ID_MAC_DINH, SHEET_GID_MAC_DINH)
+    c1, c2 = st.columns(2)
+    if c1.button("Làm mới dữ liệu", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    auto = c2.toggle("Tự động cập nhật", value=True, help=f"Tải lại mỗi {TTL // 60} phút")
+
+if st_autorefresh and auto:
+    st_autorefresh(interval=TTL * 1000, key="auto")
+
+try:
+    raw, tai_luc = tai_4a(sid, gid)
+except Exception as e:  # noqa: BLE001
+    st.error("**Không đọc được Google Sheet.**")
+    st.code(str(e))
+    st.stop()
+
+df = chuan_hoa(raw)
+if df.empty:
+    st.warning("Sheet đọc được nhưng chưa có lượt chạy nào hợp lệ "
+               "(cần Prompt ID dạng Pxx và cột 'Câu trả lời đầy đủ' có nội dung).")
+    st.stop()
+
+with st.sidebar:
+    st.caption(f"Cập nhật lúc {tai_luc:%H:%M:%S %d/%m} · {len(df)} lượt")
+    f_moc = st.multiselect("Mốc đánh giá", sorted(df["Mốc"].unique(), key=lambda m: MOC_ORDER.index(m) if m in MOC_ORDER else 9),
+                           default=list(df["Mốc"].unique()))
+    f_nt = st.multiselect("Nền tảng AI", sorted(df["Nền tảng"].unique()), default=list(df["Nền tảng"].unique()))
+    f_nhom = st.multiselect("Nhóm câu hỏi", list(dict.fromkeys(NHOM_PROMPT.values())),
+                            default=list(dict.fromkeys(NHOM_PROMPT.values())))
+    f_tk = st.multiselect("Loại tài khoản", sorted(df["Loại tài khoản"].unique()),
+                          default=list(df["Loại tài khoản"].unique()))
+
+    ngay_co = sorted(x for x in df["Ngày chạy"].dropna().unique())
+    if ngay_co:
+        lo, hi = ngay_co[0], ngay_co[-1]
+        sel = st.date_input("Khoảng thời gian", (lo, hi), min_value=lo, max_value=hi)
+        if isinstance(sel, (list, tuple)):
+            f_ngay = (sel[0], sel[-1] if len(sel) > 1 else sel[0])
+        else:
+            f_ngay = (sel, sel)
+    else:
+        f_ngay = None
+
+    f_loi = st.multiselect("Mã lỗi (PF)", sorted({x for lst in df["_pf"] for x in lst}),
+                           help="Chọn ≥1 mã để chỉ xem lượt có mã đó")
+
+f = df[df["Mốc"].isin(f_moc) & df["Nền tảng"].isin(f_nt)
+       & df["Nhóm prompt"].isin(f_nhom) & df["Loại tài khoản"].isin(f_tk)]
+if f_ngay:
+    f = f[f["Ngày chạy"].notna() & f["Ngày chạy"].between(f_ngay[0], f_ngay[1])]
+if f_loi:
+    _sel_loi = set(f_loi)
+    f = f[f["_pf"].apply(lambda p: bool(_sel_loi & set(p)))]
+
+st.title("GEO PalFish VN — Báo cáo giám sát thông tin thương hiệu trên nền tảng AI")
+if f.empty:
+    st.warning("Không có dòng nào khớp bộ lọc.")
+    st.stop()
+
+k = tinh_kpi(f)
+
+n_dung = int((f["Độ chính xác"] == "Đúng").sum())
+n_mot = int((f["Độ chính xác"] == "Đúng một phần").sum())
+n_sai = int((f["Độ chính xác"] == "Sai").sum())
+
+cols = st.columns(5)
+cols[0].metric("Tổng lượt kiểm tra", len(f))
+cols[1].metric("Trả lời chính xác", n_dung)
+cols[2].metric("Chính xác một phần", n_mot)
+cols[3].metric("Trả lời sai", n_sai)
+cols[4].metric("Tổng số lỗi ghi nhận", k["tong_loi"])
+
+tab_tq, tab_pr, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
+    ["Tổng quan", "Phân tích theo câu hỏi", "Danh mục lỗi", "Nguồn trích dẫn",
+     "Dữ liệu chi tiết", "Báo cáo định kỳ"]
+)
+
+with tab_tq:
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.subheader("Độ chính xác theo nền tảng")
+        base = f.assign(_bac=pd.Categorical(f["Độ chính xác"], BAC_CX, ordered=True))
+        ch = (alt.Chart(base).mark_bar().encode(
+            x=alt.X("Nền tảng:N", title=None),
+            y=alt.Y("count():Q", title="Số lượt"),
+            color=alt.Color("_bac:N", title="Độ chính xác",
+                            scale=alt.Scale(domain=BAC_CX, range=MAU_CX), sort=BAC_CX),
+            order=alt.Order("_bac:N"),
+            tooltip=["Nền tảng:N", "_bac:N", alt.Tooltip("count():Q", title="Số lượt")],
+        ).properties(height=320))
+        st.altair_chart(ch, use_container_width=True)
+    with c2:
+        st.subheader("Tỷ lệ trích dẫn palfish.vn")
+        dd = pd.DataFrame({
+            "Nhóm": ["Có trích palfish.vn", "Không"],
+            "Số lượt": [int(f["Trích palfish.vn"].sum()), int((~f["Trích palfish.vn"]).sum())],
+        })
+        ch = (alt.Chart(dd).mark_arc(innerRadius=60).encode(
+            theta="Số lượt:Q",
+            color=alt.Color("Nhóm:N", scale=alt.Scale(range=["#2E7D32", "#CFD8DC"]), title=None),
+            tooltip=["Nhóm:N", "Số lượt:Q"],
+        ).properties(height=260))
+        st.altair_chart(ch, use_container_width=True)
+        st.metric("Lẫn thông tin nước ngoài / lỗi thời",
+                  f"{(f['Trộn nước ngoài'] != 'Không').mean():.0%} lượt")
+
+    if f["Mốc"].nunique() > 1:
+        st.subheader("Xu hướng qua các mốc đánh giá")
+        tr = (f.groupby("Mốc").apply(lambda g: pd.Series(tinh_kpi(g))).reset_index()
+              .melt("Mốc", ["xuat_hien", "chinh_xac", "palfish", "kenh"], "Chỉ số", "Giá trị"))
+        tr["Mốc"] = pd.Categorical(tr["Mốc"], MOC_ORDER, ordered=True)
+        st.altair_chart(alt.Chart(tr).mark_line(point=True).encode(
+            x="Mốc:N", y=alt.Y("Giá trị:Q", axis=alt.Axis(format="%")),
+            color="Chỉ số:N", tooltip=["Mốc:N", "Chỉ số:N", alt.Tooltip("Giá trị:Q", format=".0%")],
+        ).properties(height=300), use_container_width=True)
+    else:
+        st.info("Chỉ mới có 1 mốc — biểu đồ xu hướng sẽ hiện khi có mốc Cuối T1 / Cuối T2.")
+
+with tab_pr:
+    st.subheader("Số lỗi theo câu hỏi và nền tảng")
+    piv = (f.groupby(["Prompt ID", "Nền tảng"])["Số lỗi"].sum().reset_index())
+    order_p = [f"P{n:02d}" for n in range(1, 21)]
+    heat = alt.Chart(piv).mark_rect().encode(
+        x=alt.X("Nền tảng:N", title=None),
+        y=alt.Y("Prompt ID:N", sort=order_p, title=None),
+        color=alt.Color("Số lỗi:Q", scale=alt.Scale(scheme="reds")),
+        tooltip=["Prompt ID:N", "Nền tảng:N", "Số lỗi:Q"],
+    ).properties(height=520)
+    txt = heat.mark_text(baseline="middle", color="#222").encode(
+        text=alt.Text("Số lỗi:Q", format=".0f"),
+    )
+    st.altair_chart(heat + txt, use_container_width=True)
+
+    st.subheader("Số lỗi theo nhóm câu hỏi")
+    gn = f.groupby("Nhóm prompt")["Số lỗi"].sum().reset_index()
+    st.altair_chart(alt.Chart(gn).mark_bar().encode(
+        x=alt.X("Số lỗi:Q"), y=alt.Y("Nhóm prompt:N", sort="-x", title=None),
+        tooltip=["Nhóm prompt:N", "Số lỗi:Q"],
+    ).properties(height=200), use_container_width=True)
+
+with tab_pf:
+    st.subheader("Tần suất theo mã lỗi")
+    bpf = bang_pf(f)
+    if bpf.empty:
+        st.info("Không có mã PF nào trong phạm vi lọc.")
+    else:
+        st.altair_chart(alt.Chart(bpf).mark_bar().encode(
+            x=alt.X("Số lượt:Q"),
+            y=alt.Y("Mã:N", sort="-x", title=None),
+            color=alt.Color("Mức:N", scale=alt.Scale(domain=list(MAU_MUC), range=list(MAU_MUC.values()))),
+            tooltip=["Mã:N", "Loại lỗi:N", "Mức:N", "Số lượt:Q", "Nền tảng dính:N", "Prompt:N"],
+        ).properties(height=max(200, 26 * len(bpf))), use_container_width=True)
+        st.dataframe(bpf, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("Phân bố lỗi")
+    daca = f[f["Độ chính xác"].isin(["Đúng", "Đúng một phần", "Sai", "Không có thông tin"])]
+    if daca.empty:
+        st.info("Chưa có lượt nào được chấm trong phạm vi lọc.")
+    else:
+        d1, d2 = st.columns(2)
+        with d1:
+            st.caption("Số lỗi trên mỗi lượt trả lời (đã đánh giá)")
+            dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
+                    .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
+            st.altair_chart(alt.Chart(dist).mark_bar().encode(
+                x=alt.X("Số lỗi / lượt:O"),
+                y=alt.Y("Số lượt:Q"),
+                tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
+            ).properties(height=300), use_container_width=True)
+        with d2:
+            st.caption("Phân bố theo loại lỗi")
+            loai = pd.Series([p.strip() for s in f["Loại lỗi"]
+                              for p in re.split(r";", str(s)) if p.strip()])
+            if loai.empty:
+                st.info("Cột 'Loại lỗi' đang trống.")
+            else:
+                vc = loai.value_counts().rename_axis("Loại lỗi").reset_index(name="Số lượt")
+                st.altair_chart(alt.Chart(vc).mark_bar().encode(
+                    x=alt.X("Số lượt:Q"),
+                    y=alt.Y("Loại lỗi:N", sort="-x", title=None),
+                    tooltip=["Loại lỗi:N", "Số lượt:Q"],
+                ).properties(height=max(200, 26 * len(vc))), use_container_width=True)
+
+        st.caption("Số lỗi theo mức ưu tiên và nền tảng")
+        ex = f.explode("_pf")
+        ex = ex[ex["_pf"].notna() & ex["_pf"].astype(str).str.startswith("PF-")]
+        if ex.empty:
+            st.info("Không có mã PF nào.")
+        else:
+            ex = ex.assign(Mức=ex["_pf"].map(PF_MUC).fillna("?"))
+            gm = ex.groupby(["Nền tảng", "Mức"]).size().reset_index(name="Số lỗi")
+            st.altair_chart(alt.Chart(gm).mark_bar().encode(
+                x=alt.X("Nền tảng:N", title=None),
+                y=alt.Y("Số lỗi:Q"),
+                color=alt.Color("Mức:N", sort=list(MAU_MUC),
+                                scale=alt.Scale(domain=list(MAU_MUC), range=list(MAU_MUC.values()))),
+                order=alt.Order("Mức:N"),
+                tooltip=["Nền tảng:N", "Mức:N", "Số lỗi:Q"],
+            ).properties(height=320), use_container_width=True)
+
+with tab_ng:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Tên miền AI thường trích dẫn")
+        dom = pd.Series([x for t in f["Nguồn AI trích dẫn"] for x in tach_domain(t)])
+        if dom.empty:
+            st.info("Cột 'Nguồn AI trích dẫn' đang trống.")
+        else:
+            vc = dom.value_counts().head(15).rename_axis("Tên miền").reset_index(name="Số lượt")
+            st.altair_chart(alt.Chart(vc).mark_bar().encode(
+                x="Số lượt:Q", y=alt.Y("Tên miền:N", sort="-x", title=None),
+                tooltip=["Tên miền:N", "Số lượt:Q"],
+            ).properties(height=max(200, 24 * len(vc))), use_container_width=True)
+    with c2:
+        st.subheader("Nguồn phát sinh thông tin sai")
+        bad = pd.Series([x for t in f["Nguồn thông tin sai"]
+                         for x in re.split(r"[;,]", t) if x.strip()]).str.strip()
+        bad = bad[bad.ne("")].apply(lambda s: s.split("/")[0].split()[0] if s else s)
+        if bad.empty:
+            st.info("Cột 'Nguồn thông tin sai' đang trống.")
+        else:
+            vc = bad.value_counts().head(15).rename_axis("Nguồn").reset_index(name="Số lượt")
+            st.altair_chart(alt.Chart(vc).mark_bar(color="#C62828").encode(
+                x="Số lượt:Q", y=alt.Y("Nguồn:N", sort="-x", title=None),
+                tooltip=["Nguồn:N", "Số lượt:Q"],
+            ).properties(height=max(200, 24 * len(vc))), use_container_width=True)
+
+    st.subheader("Tỷ lệ trích dẫn kênh chính thống theo nền tảng")
+    g = f.groupby("Nền tảng").agg(
+        **{"Số lượt": ("Prompt ID", "size")},
+        **{"Tỷ lệ trích palfish.vn": ("Trích palfish.vn", "mean")},
+        **{"Tỷ lệ có kênh chính thống": ("Kênh chính thống khác", "mean")},
+    ).reset_index()
+    for c in ("Tỷ lệ trích palfish.vn", "Tỷ lệ có kênh chính thống"):
+        g[c] = (g[c] * 100).round().astype(int).astype(str) + "%"
+    st.dataframe(g, use_container_width=True, hide_index=True)
+
+with tab_ct:
+    st.subheader("Toàn bộ lượt kiểm tra")
+    show = ["Ngày chạy", "Mốc", "Nền tảng", "Loại tài khoản", "Prompt ID", "Nhóm prompt", "Xuất hiện",
+            "Vị trí đề cập", "Độ chính xác", "Số lỗi", "Loại lỗi", "Trộn nước ngoài",
+            "Trích palfish.vn", "Nguồn thông tin sai"]
+    st.dataframe(f[show], use_container_width=True, hide_index=True)
+
+    st.subheader("Xem chi tiết một lượt")
+    nhan = f.apply(lambda r: f"{r['Nền tảng']} · {r['Prompt ID']} · {r['Độ chính xác']}", axis=1)
+    idx = st.selectbox("Chọn lượt kiểm tra", options=list(f.index), format_func=lambda i: nhan[i])
+    r = f.loc[idx]
+    st.markdown(f"**{r['Nền tảng']} — {r['Prompt ID']}** · {r['Nhóm prompt']} · "
+                f"độ chính xác: **{r['Độ chính xác']}** · số lỗi: **{int(r['Số lỗi'])}** "
+                f"· mã: {', '.join(r['_pf']) or '—'}")
+    if r["Đoạn có vấn đề"]:
+        st.error(f"**Nội dung có vấn đề:** {r['Đoạn có vấn đề']}")
+    if r["Nguồn thông tin sai"]:
+        st.write(f"**Nguồn phát sinh thông tin sai:** {r['Nguồn thông tin sai']}")
+    if r["Ghi chú"]:
+        st.info(f"**Ghi chú:** {r['Ghi chú']}")
+    with st.expander("Nội dung trả lời của AI"):
+        st.write(r["Câu trả lời"])
+    with st.expander("Nguồn AI trích dẫn"):
+        st.write(r["Nguồn AI trích dẫn"] or "(trống)")
+    if r["Link bằng chứng"]:
+        st.write(f"[Ảnh chụp / hội thoại minh chứng]({r['Link bằng chứng']})")
+
+with tab_bc:
+    st.subheader("Bản tổng hợp định kỳ (tự động tạo)")
+    txt = bao_cao_tuan(f, k)
+    st.code(txt, language="markdown")
+    st.download_button("Tải bản .md", data=txt.encode("utf-8"),
+                       file_name=f"bao-cao-GEO-{dt.date.today():%Y%m%d}.md", mime="text/markdown")
