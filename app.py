@@ -32,8 +32,10 @@ except Exception:  # thư viện phụ, không có cũng chạy được
 # ------------------------------------------------------------------ cấu hình
 SHEET_ID_MAC_DINH = "172WzrO47njz-fMmi035PcmmVBTcaR2PIXg_GeaDBbNY"
 SHEET_GID_MAC_DINH = "1347201081"          # tab "4a Nhat ky luot chay"
+SHEET_GID_ISSUE = "950577392"              # tab "3 Issue tracker"
 SHEET_TEN = "4a Nhat ky luot chay"
 TTL = 120                                  # giây — hết hạn thì tải lại sheet
+TT_ORDER = ["Mới", "Đã xác nhận", "Đang sửa", "Đã sửa (chờ test)", "Đang theo dõi", "Đã đóng"]
 
 # Mức ưu tiên từng mã lỗi (KHÔNG có trong sheet 4a -> khai ở đây).
 # Nguồn: bản chấm baseline + tab "3 Issue tracker".
@@ -160,6 +162,53 @@ def col(df: pd.DataFrame, *subs: str) -> str | None:
         if all(s.lower() in norm for s in subs):
             return c
     return None
+
+
+@st.cache_data(ttl=TTL)
+def tai_issue(sheet_id: str, gid: str) -> pd.DataFrame:
+    """Đọc tab '3 Issue tracker'. Lỗi -> DataFrame rỗng (dashboard vẫn chạy)."""
+    base = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+    # export giữ được cột ngày; gviz&headers=1 làm dự phòng (1 dòng tiêu đề, không gộp).
+    for url in (f"{base}/export?format=csv&gid={gid}",
+                f"{base}/gviz/tq?tqx=out:csv&gid={gid}&headers=1"):
+        try:
+            req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            raw = urlopen(req, timeout=30).read().decode("utf-8", "replace")
+            if "<html" in raw[:400].lower():
+                continue
+            df = pd.read_csv(io.StringIO(raw), dtype=str).fillna("")
+            if df.shape[1] >= 8:
+                return df
+        except Exception:  # noqa: BLE001
+            continue
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=TTL)
+def chuan_hoa_issue(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    def g(*subs: str) -> pd.Series:
+        c = col(df, *subs)
+        return df[c].astype(str).str.strip() if c else pd.Series([""] * len(df), index=df.index)
+
+    o = pd.DataFrame(index=df.index)
+    o["Mã"] = g("mã").str.upper()
+    o["Ngày phát hiện"] = g("ngày phát")
+    o["Phát hiện qua"] = g("phát hiện qua")
+    o["Mô tả"] = g("mô tả")
+    o["Loại"] = g("loại")
+    o["Mức"] = g("mức").str.upper().str.replace(" ", "")
+    o["Thông tin đúng"] = g("thông tin đúng")
+    o["Người phụ trách"] = g("phụ trách").replace("", "(chưa gán)")
+    o["Trạng thái"] = g("trạng thái").replace("", "Mới")
+    o["Ngày sửa xong"] = g("sửa xong")
+    o["Ngày test lại"] = g("ngày test")
+    o["Kết quả test lại"] = g("kết quả")
+    o["Ngày đóng"] = g("ngày đóng")
+    o = o[o["Mã"].str.match(r"^PF-\d{3}$", na=False)].reset_index(drop=True)
+    return o
 
 
 def tach_domain(text: str) -> list[str]:
@@ -317,10 +366,10 @@ def _bd_pf_theo_nhom(fr: pd.DataFrame, group_col: str, order: list[str]):
     ).properties(height=_cao(len(order)))
 
 
-def bao_cao_tuan(fr: pd.DataFrame, k: dict) -> str:
+def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -> str:
     p0 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P0"})
     p1 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P1"})
-    return "\n".join([
+    out = [
         f"# Báo cáo giám sát GEO PalFish — {dt.date.today():%d/%m/%Y}",
         "",
         f"Phạm vi: mốc {', '.join(sorted(fr['Mốc'].unique()))} · {k['n']} lượt · "
@@ -337,12 +386,29 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict) -> str:
         f"- P0: {', '.join(pf_nhan(x) for x in p0) or '—'}",
         f"- P1: {', '.join(pf_nhan(x) for x in p1) or '—'}",
         "",
-        "## Lỗi đã đóng (đã test lại đạt)",
-        "- …",
-        "",
-        "## Cần Josh / Jacob quyết",
-        "- …",
-    ])
+    ]
+    if issue is not None and not issue.empty:
+        mo = issue[issue["Trạng thái"] != "Đã đóng"]
+        dong = issue[issue["Trạng thái"] == "Đã đóng"]
+        cho = mo[mo["Thông tin đúng"].str.contains("chờ", case=False, na=False)
+                 | mo["Thông tin đúng"].eq("")]
+        dong_tuan = dong[dong["Ngày đóng"].astype(str).str.strip().ne("")]
+        out += [
+            "## Trạng thái xử lý lỗi (từ Issue tracker)",
+            f"- Đang mở: {len(mo)} "
+            f"(P0: {(mo['Mức'] == 'P0').sum()} · P1: {(mo['Mức'] == 'P1').sum()} · "
+            f"P2: {(mo['Mức'] == 'P2').sum()})",
+            f"- Đã đóng: {len(dong)}"
+            + (f" — gần đây: {', '.join(dong_tuan['Mã'])}" if not dong_tuan.empty else ""),
+            f"- Đang chờ Josh / Jacob / HQ chốt: {', '.join(cho['Mã']) or '—'}",
+            "",
+        ]
+    else:
+        out += [
+            "## Lỗi đã đóng (đã test lại đạt)", "- …", "",
+            "## Cần Josh / Jacob quyết", "- …",
+        ]
+    return "\n".join(out)
 
 
 # ------------------------------------------------------------------ giao diện
@@ -372,6 +438,8 @@ if df.empty:
     st.warning("Sheet đọc được nhưng chưa có lượt chạy nào hợp lệ "
                "(cần Prompt ID dạng Pxx và cột 'Câu trả lời đầy đủ' có nội dung).")
     st.stop()
+
+issue = chuan_hoa_issue(tai_issue(sid, SHEET_GID_ISSUE))
 
 with st.sidebar:
     st.caption(f"Cập nhật lúc {tai_luc:%H:%M:%S %d/%m} · {len(df)} lượt")
@@ -432,9 +500,9 @@ cols[3].caption(f"↳ {_y(m_sai)} ý lỗi trong nhóm")
 cols[4].metric("Tổng số lỗi ghi nhận", k["tong_loi"])
 cols[4].caption("↳ = tổng 3 ô bên trái")
 
-tab_tq, tab_pr, tab_nt, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
+tab_tq, tab_pr, tab_nt, tab_pf, tab_ng, tab_tt, tab_ct, tab_bc = st.tabs(
     ["Tổng quan", "Phân tích theo câu hỏi", "Phân tích theo nền tảng", "Danh mục lỗi",
-     "Nguồn trích dẫn", "Dữ liệu chi tiết", "Báo cáo định kỳ"]
+     "Nguồn trích dẫn", "Trạng thái xử lý lỗi", "Dữ liệu chi tiết", "Báo cáo định kỳ"]
 )
 
 with tab_tq:
@@ -615,6 +683,64 @@ with tab_ng:
         gnt[c] = (gnt[c] * 100).round().astype(int).astype(str) + "%"
     st.dataframe(gnt.reset_index(), use_container_width=True, hide_index=True)
 
+with tab_tt:
+    st.caption("Đọc trực tiếp tab “3 Issue tracker” trong Google Sheet — cập nhật khi bạn "
+               "đổi cột Trạng thái trong sheet. (Bộ lọc bên trái không áp dụng ở tab này.)")
+    if issue.empty:
+        st.info("Chưa đọc được tab “3 Issue tracker” (kiểm tra Sheet đã bật quyền xem, "
+                "hoặc bạn đang trỏ tới một Sheet khác).")
+    else:
+        _mo = issue[issue["Trạng thái"] != "Đã đóng"]
+        _dong = issue[issue["Trạng thái"] == "Đã đóng"]
+        _p0mo = _mo[_mo["Mức"] == "P0"]
+        mc = st.columns(4)
+        mc[0].metric("Tổng lỗi ghi nhận", len(issue))
+        mc[1].metric("Đang mở", len(_mo))
+        mc[2].metric("P0 đang mở", len(_p0mo))
+        mc[3].metric("Đã đóng", len(_dong))
+
+        _MUC_BG = {"P0": "rgba(198,40,40,.18)", "P1": "rgba(249,168,37,.16)",
+                   "P2": "rgba(144,164,174,.14)"}
+
+        def _to_muc(colv):
+            return [f"background-color: {_MUC_BG.get(v, '')}" for v in colv]
+
+        st.subheader("Lỗi đang mở")
+        if _mo.empty:
+            st.success("Không còn lỗi nào đang mở 🎉")
+        else:
+            mm = _mo.assign(_o=_mo["Mức"].map({"P0": 0, "P1": 1, "P2": 2}).fillna(9),
+                            _t=_mo["Trạng thái"].map({s: i for i, s in enumerate(TT_ORDER)}).fillna(0))
+            mm = mm.sort_values(["_o", "_t", "Mã"])
+            show_c = ["Mã", "Loại", "Mức", "Mô tả", "Thông tin đúng",
+                      "Người phụ trách", "Trạng thái", "Ngày sửa xong", "Ngày test lại"]
+            st.dataframe(mm[show_c].style.apply(_to_muc, subset=["Mức"]),
+                         use_container_width=True, hide_index=True,
+                         column_config={"Mô tả": st.column_config.TextColumn(width="large"),
+                                        "Thông tin đúng": st.column_config.TextColumn(width="medium")})
+
+        st.subheader("Việc đang mở theo người phụ trách")
+        if _mo.empty:
+            st.caption("—")
+        else:
+            byo = (_mo.assign(P0=(_mo["Mức"] == "P0").astype(int),
+                              P1=(_mo["Mức"] == "P1").astype(int),
+                              P2=(_mo["Mức"] == "P2").astype(int))
+                   .groupby("Người phụ trách")
+                   .agg(**{"Số lỗi": ("Mã", "size"), "P0": ("P0", "sum"),
+                           "P1": ("P1", "sum"), "P2": ("P2", "sum")})
+                   .reset_index().sort_values("Số lỗi", ascending=False))
+            st.dataframe(byo, use_container_width=True, hide_index=True)
+
+        st.subheader("Lỗi đã đóng")
+        if _dong.empty:
+            st.caption("Chưa có lỗi nào được đóng.")
+        else:
+            st.dataframe(
+                _dong[["Mã", "Loại", "Mức", "Người phụ trách",
+                       "Ngày đóng", "Kết quả test lại"]],
+                use_container_width=True, hide_index=True)
+
 with tab_ct:
     st.subheader("Toàn bộ lượt kiểm tra")
     show = ["Ngày chạy", "Mốc", "Nền tảng", "Loại tài khoản", "Prompt ID", "Nhóm prompt", "Xuất hiện",
@@ -645,7 +771,9 @@ with tab_ct:
 
 with tab_bc:
     st.subheader("Bản tổng hợp định kỳ (tự động tạo)")
-    txt = bao_cao_tuan(f, k)
+    st.caption("Số liệu điền sẵn từ dữ liệu hiện tại + Issue tracker. Copy, bổ sung phần "
+               "nhận định rồi gửi. Không tự lưu / gửi.")
+    txt = bao_cao_tuan(f, k, issue)
     st.code(txt, language="markdown")
     st.download_button("Tải bản .md", data=txt.encode("utf-8"),
                        file_name=f"bao-cao-GEO-{dt.date.today():%Y%m%d}.md", mime="text/markdown")
