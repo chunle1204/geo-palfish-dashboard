@@ -487,14 +487,15 @@ with tab_tq:
             theta=alt.Theta("Số câu:Q", stack=True),
             order=alt.Order("_o:Q"),
             color=alt.Color("Độ chính xác:N", sort=BAC_CX, title=None,
-                            legend=alt.Legend(orient="bottom", direction="vertical",
-                                              title=None, labelLimit=220, symbolSize=110),
+                            legend=alt.Legend(orient="bottom", columns=1, title=None,
+                                              labelLimit=240, symbolSize=120, labelFontSize=12),
                             scale=alt.Scale(domain=BAC_CX, range=MAU_CX)),
         )
         arc = base.mark_arc(innerRadius=48, outerRadius=95)
         lab = (base.transform_filter("datum['Số câu'] > 0")
                .mark_text(radius=114, fontSize=11).encode(text="nhãn:N"))
-        st.altair_chart((arc + lab).properties(height=300), use_container_width=True)
+        st.altair_chart((arc + lab).properties(height=300, width="container"),
+                        use_container_width=True)
 
     st.subheader("Độ chính xác theo nền tảng AI tìm kiếm")
     st.dataframe(_bang_dcx("Nền tảng", sorted(f["Nền tảng"].unique())), use_container_width=True)
