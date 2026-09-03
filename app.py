@@ -1050,3 +1050,5 @@ with tab_bc:
         st.markdown(txt)
         with st.expander(T("Xem dạng văn bản thô (để copy sang email / chat)")):
             st.code(txt, language="markdown")
+
+# i18n deploy nudge
