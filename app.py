@@ -204,6 +204,57 @@ def bang_pf(fr: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["Mức", "Số lượt"], ascending=[True, False]).reset_index(drop=True)
 
 
+def _bd_ty_le_cx(fr: pd.DataFrame, group_col: str, order: list[str]):
+    """Thanh xếp chồng 100%: tỷ lệ Đúng / Một phần / Sai theo `group_col`."""
+    d = (fr[fr["Độ chính xác"].isin(BAC_CX)]
+         .groupby([group_col, "Độ chính xác"], observed=True).size()
+         .reset_index(name="Số câu"))
+    d["_o"] = d["Độ chính xác"].map({b: i for i, b in enumerate(BAC_CX)})
+    return alt.Chart(d).mark_bar().encode(
+        x=alt.X("Số câu:Q", stack="normalize", axis=alt.Axis(format="%"), title="Tỷ lệ"),
+        y=alt.Y(f"{group_col}:N", sort=order, title=None),
+        color=alt.Color("Độ chính xác:N", sort=BAC_CX,
+                        scale=alt.Scale(domain=BAC_CX, range=MAU_CX),
+                        legend=alt.Legend(orient="bottom", title=None)),
+        order=alt.Order("_o:Q"),
+        tooltip=[alt.Tooltip(f"{group_col}:N", title="Nhóm"), "Độ chính xác:N", "Số câu:Q"],
+    )
+
+
+def _bd_so_loi_muc(fr: pd.DataFrame, group_col: str):
+    """Thanh xếp chồng: số ý lỗi theo `group_col`, tách theo mức P0/P1/P2."""
+    ex = fr.explode("_pf")
+    ex = ex[ex["_pf"].astype(str).str.startswith("PF-")]
+    if ex.empty:
+        return None
+    ex = ex.assign(Mức=ex["_pf"].map(PF_MUC).fillna("?"))
+    d = ex.groupby([group_col, "Mức"], observed=True).size().reset_index(name="Số ý lỗi")
+    return alt.Chart(d).mark_bar().encode(
+        x=alt.X("Số ý lỗi:Q"),
+        y=alt.Y(f"{group_col}:N", sort="-x", title=None),
+        color=alt.Color("Mức:N", sort=list(MAU_MUC),
+                        scale=alt.Scale(domain=list(MAU_MUC), range=list(MAU_MUC.values())),
+                        legend=alt.Legend(orient="bottom", title="Mức ưu tiên")),
+        order=alt.Order("Mức:N"),
+        tooltip=[alt.Tooltip(f"{group_col}:N", title="Nhóm"), "Mức:N", "Số ý lỗi:Q"],
+    )
+
+
+def _bd_pf_theo_nhom(fr: pd.DataFrame, group_col: str):
+    """Thanh xếp chồng: `group_col` dính những mã PF nào (đếm số lượt)."""
+    ex = fr.explode("_pf")
+    ex = ex[ex["_pf"].astype(str).str.startswith("PF-")]
+    if ex.empty:
+        return None
+    d = ex.groupby([group_col, "_pf"], observed=True).size().reset_index(name="Số lượt")
+    return alt.Chart(d).mark_bar().encode(
+        x=alt.X("Số lượt:Q", title="Số lượt dính"),
+        y=alt.Y(f"{group_col}:N", sort="-x", title=None),
+        color=alt.Color("_pf:N", title="Mã lỗi", legend=alt.Legend(orient="bottom", columns=8)),
+        tooltip=[alt.Tooltip(f"{group_col}:N", title="Nhóm"), "_pf:N", "Số lượt:Q"],
+    )
+
+
 def bao_cao_tuan(fr: pd.DataFrame, k: dict) -> str:
     p0 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P0"})
     p1 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P1"})
@@ -318,9 +369,9 @@ cols[3].caption(f"↳ {_y(m_sai)} ý lỗi trong nhóm")
 cols[4].metric("Tổng số lỗi ghi nhận", k["tong_loi"])
 cols[4].caption("↳ = tổng 3 ô bên trái")
 
-tab_tq, tab_pr, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
-    ["Tổng quan", "Phân tích theo câu hỏi", "Danh mục lỗi", "Nguồn trích dẫn",
-     "Dữ liệu chi tiết", "Báo cáo định kỳ"]
+tab_tq, tab_pr, tab_nt, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
+    ["Tổng quan", "Phân tích theo câu hỏi", "Phân tích theo nền tảng", "Danh mục lỗi",
+     "Nguồn trích dẫn", "Dữ liệu chi tiết", "Báo cáo định kỳ"]
 )
 
 with tab_tq:
@@ -398,26 +449,61 @@ with tab_tq:
         st.info("Chỉ mới có 1 mốc — biểu đồ xu hướng sẽ hiện khi có mốc Cuối T1 / Cuối T2.")
 
 with tab_pr:
-    st.subheader("Số lỗi theo câu hỏi và nền tảng")
-    piv = (f.groupby(["Prompt ID", "Nền tảng"])["Số lỗi"].sum().reset_index())
-    order_p = [f"P{n:02d}" for n in range(1, 21)]
-    heat = alt.Chart(piv).mark_rect().encode(
-        x=alt.X("Nền tảng:N", title=None),
-        y=alt.Y("Prompt ID:N", sort=order_p, title=None),
-        color=alt.Color("Số lỗi:Q", scale=alt.Scale(scheme="reds")),
-        tooltip=["Prompt ID:N", "Nền tảng:N", "Số lỗi:Q"],
-    ).properties(height=520)
-    txt = heat.mark_text(baseline="middle", color="#222").encode(
-        text=alt.Text("Số lỗi:Q", format=".0f"),
-    )
-    st.altair_chart(heat + txt, use_container_width=True)
+    st.caption("Diễn giải chi tiết cho bảng “Độ chính xác theo nhóm câu hỏi” ở tab Tổng quan.")
 
-    st.subheader("Số lỗi theo nhóm câu hỏi")
-    gn = f.groupby("Nhóm prompt")["Số lỗi"].sum().reset_index()
-    st.altair_chart(alt.Chart(gn).mark_bar().encode(
-        x=alt.X("Số lỗi:Q"), y=alt.Y("Nhóm prompt:N", sort="-x", title=None),
-        tooltip=["Nhóm prompt:N", "Số lỗi:Q"],
-    ).properties(height=200), use_container_width=True)
+    st.subheader("Tỷ lệ độ chính xác theo nhóm câu hỏi")
+    st.altair_chart(_bd_ty_le_cx(f, "Nhóm prompt", NHOM_ORDER).properties(height=300),
+                    use_container_width=True)
+    st.caption("Thanh càng nhiều vàng/đỏ → nhóm câu hỏi đó AI trả lời càng kém.")
+
+    st.subheader("Số ý lỗi theo nhóm câu hỏi (tách theo mức ưu tiên)")
+    ch = _bd_so_loi_muc(f, "Nhóm prompt")
+    if ch is not None:
+        st.altair_chart(ch.properties(height=300), use_container_width=True)
+        st.caption("Nhóm nằm trên cùng là nơi tích tụ nhiều lỗi nhất; phần đỏ là lỗi P0 (nghiêm trọng).")
+    else:
+        st.info("Không có mã PF nào trong phạm vi lọc.")
+
+    st.subheader("Nhóm câu hỏi dính những mã lỗi nào")
+    ch = _bd_pf_theo_nhom(f, "Nhóm prompt")
+    if ch is not None:
+        st.altair_chart(ch.properties(height=340), use_container_width=True)
+    else:
+        st.info("Không có mã PF nào trong phạm vi lọc.")
+
+with tab_nt:
+    st.caption("Diễn giải chi tiết cho bảng “Độ chính xác theo nền tảng AI tìm kiếm” ở tab Tổng quan.")
+    plat_order = sorted(f["Nền tảng"].unique())
+
+    st.subheader("Tỷ lệ độ chính xác theo nền tảng")
+    st.altair_chart(_bd_ty_le_cx(f, "Nền tảng", plat_order).properties(height=220),
+                    use_container_width=True)
+
+    st.subheader("Số ý lỗi theo nền tảng (tách theo mức ưu tiên)")
+    ch = _bd_so_loi_muc(f, "Nền tảng")
+    if ch is not None:
+        st.altair_chart(ch.properties(height=240), use_container_width=True)
+    else:
+        st.info("Không có mã PF nào trong phạm vi lọc.")
+
+    st.subheader("Nền tảng nào dính những mã lỗi nào")
+    ch = _bd_pf_theo_nhom(f, "Nền tảng")
+    if ch is not None:
+        st.altair_chart(ch.properties(height=280), use_container_width=True)
+    else:
+        st.info("Không có mã PF nào trong phạm vi lọc.")
+
+    st.subheader("Hành vi trích dẫn nguồn theo nền tảng")
+    gnt = f.groupby("Nền tảng").agg(**{
+        "Số lượt": ("Prompt ID", "size"),
+        "Trích palfish.vn": ("Trích palfish.vn", "mean"),
+        "Có kênh chính thống": ("Kênh chính thống khác", "mean"),
+    })
+    gnt["Lẫn TT nước ngoài"] = (f.assign(_x=f["Trộn nước ngoài"].ne("Không"))
+                               .groupby("Nền tảng")["_x"].mean())
+    for c in ["Trích palfish.vn", "Có kênh chính thống", "Lẫn TT nước ngoài"]:
+        gnt[c] = (gnt[c] * 100).round().astype(int).astype(str) + "%"
+    st.dataframe(gnt.reset_index(), use_container_width=True, hide_index=True)
 
 with tab_pf:
     st.subheader("Tần suất theo mã lỗi")
