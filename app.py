@@ -505,14 +505,21 @@ if df.empty:
 
 issue = chuan_hoa_issue(tai_issue(sid, SHEET_GID_ISSUE))
 
+TC = "Tất cả"  # giá trị mặc định cho các bộ lọc dropdown
+
 with st.sidebar:
     st.caption(f"Cập nhật lúc {tai_luc:%H:%M:%S %d/%m} · {len(df)} lượt")
-    f_moc = st.multiselect("Mốc đánh giá", sorted(df["Mốc"].unique(), key=lambda m: MOC_ORDER.index(m) if m in MOC_ORDER else 9),
-                           default=list(df["Mốc"].unique()))
-    f_nt = st.multiselect("Nền tảng AI", sorted(df["Nền tảng"].unique()), default=list(df["Nền tảng"].unique()))
-    f_nhom = st.multiselect("Nhóm câu hỏi", NHOM_ORDER, default=NHOM_ORDER)
-    f_tk = st.multiselect("Loại tài khoản", sorted(df["Loại tài khoản"].unique()),
-                          default=list(df["Loại tài khoản"].unique()))
+    _moc_opts = sorted(df["Mốc"].unique(),
+                       key=lambda m: MOC_ORDER.index(m) if m in MOC_ORDER else 9)
+    f_moc = st.selectbox("Mốc đánh giá", [TC] + _moc_opts)
+    f_nt = st.selectbox("Nền tảng AI", [TC] + sorted(df["Nền tảng"].unique()))
+    f_nhom = st.selectbox("Nhóm câu hỏi",
+                          [TC] + [g for g in NHOM_ORDER if (df["Nhóm prompt"] == g).any()])
+    f_tk = st.selectbox("Loại tài khoản", [TC] + sorted(df["Loại tài khoản"].unique()))
+    f_loi = st.selectbox("Mã lỗi (PF)",
+                         [TC] + sorted({x for lst in df["_pf"] for x in lst}),
+                         format_func=lambda x: x if x == TC else pf_nhan(x),
+                         help="Chọn 1 mã để chỉ xem lượt có mã đó")
 
     ngay_co = sorted(x for x in df["Ngày chạy"].dropna().unique())
     if ngay_co:
@@ -525,17 +532,19 @@ with st.sidebar:
     else:
         f_ngay = None
 
-    f_loi = st.multiselect("Mã lỗi (PF)", sorted({x for lst in df["_pf"] for x in lst}),
-                           format_func=pf_nhan,
-                           help="Chọn ≥1 mã để chỉ xem lượt có mã đó")
-
-f = df[df["Mốc"].isin(f_moc) & df["Nền tảng"].isin(f_nt)
-       & df["Nhóm prompt"].isin(f_nhom) & df["Loại tài khoản"].isin(f_tk)]
+f = df
+if f_moc != TC:
+    f = f[f["Mốc"] == f_moc]
+if f_nt != TC:
+    f = f[f["Nền tảng"] == f_nt]
+if f_nhom != TC:
+    f = f[f["Nhóm prompt"] == f_nhom]
+if f_tk != TC:
+    f = f[f["Loại tài khoản"] == f_tk]
 if f_ngay:
     f = f[f["Ngày chạy"].notna() & f["Ngày chạy"].between(f_ngay[0], f_ngay[1])]
-if f_loi:
-    _sel_loi = set(f_loi)
-    f = f[f["_pf"].apply(lambda p: bool(_sel_loi & set(p)))]
+if f_loi != TC:
+    f = f[f["_pf"].apply(lambda p: f_loi in p)]
 
 st.title("GEO PalFish VN — Báo cáo giám sát thông tin thương hiệu trên nền tảng AI")
 _sheet_url = f"https://docs.google.com/spreadsheets/d/{sid}/edit"
