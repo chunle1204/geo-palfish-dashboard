@@ -380,101 +380,72 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
     nd = int((fr["Độ chính xác"] == "Đúng").sum())
     nm = int((fr["Độ chính xác"] == "Đúng một phần").sum())
     ns = int((fr["Độ chính xác"] == "Sai").sum())
-    nk = int((fr["Độ chính xác"] == "Không có thông tin").sum())
     tong_y = int(fr["Số lỗi"].sum())
     tron = (fr["Trộn nước ngoài"] != "Không").mean() if n else 0.0
+    nts = sorted(fr["Nền tảng"].unique())
+    ngays = list(pd.to_datetime(fr["Ngày chạy"], errors="coerce").dropna())
 
     def pc(x):
         return f"{x / n * 100:.0f}%" if n else "—"
 
     p0 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P0"})
-    p1 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P1"})
-    p2 = sorted({x for p in fr["_pf"] for x in p if PF_MUC.get(x) == "P2"})
-    ngays = list(pd.to_datetime(fr["Ngày chạy"], errors="coerce").dropna())
+    ma_nguoi = dict(zip(issue["Mã"], issue["Người phụ trách"])) if issue is not None and not issue.empty else {}
 
-    L = [f"# Báo cáo giám sát GEO PalFish — {today:%d/%m/%Y}", ""]
+    # điểm nóng: nền tảng + nhóm câu hỏi kém nhất theo tỷ lệ đúng
+    def _ty_dung(g):
+        return (g["Độ chính xác"] == "Đúng").mean() if len(g) else 1.0
+    nt_te = min(nts, key=lambda t: _ty_dung(fr[fr["Nền tảng"] == t])) if nts else "—"
+    nt_te_pc = f"{_ty_dung(fr[fr['Nền tảng'] == nt_te]):.0%}"
+    nhom_pc = sorted(((nh, _ty_dung(fr[fr["Nhóm prompt"] == nh]))
+                      for nh in NHOM_ORDER if (fr["Nhóm prompt"] == nh).any()),
+                     key=lambda x: x[1])[:2]
+    nhom_te = ", ".join(f"{nh} ({v:.0%})" for nh, v in nhom_pc)
+
+    L = [f"# Báo cáo giám sát GEO PalFish — {today:%d/%m/%Y}"]
+    _pv = f"{', '.join(sorted(fr['Mốc'].unique()))} · {fr['Prompt ID'].nunique()} prompt · " \
+          f"{n} lượt · {', '.join(nts)}"
+    if ngays:
+        _pv += f" · {min(ngays):%d/%m}–{max(ngays):%d/%m/%Y}"
+    L += [_pv, ""]
 
     L += ["## 1. Tóm tắt", ""]
-    L += [f"Trên **{n} lượt kiểm tra** ({', '.join(sorted(fr['Nền tảng'].unique()))}), "
-          f"AI trả lời **đúng hoàn toàn {nd} ({pc(nd)})**, đúng một phần {nm} ({pc(nm)}), "
-          f"sai {ns} ({pc(ns)}). Ghi nhận **{tong_y} ý lỗi** trên {fr['_pf'].apply(bool).sum()} lượt. "
-          f"Có **{len(p0)} mã lỗi P0 (nghiêm trọng)**: "
-          f"{', '.join(pf_nhan(x) for x in p0) or '—'}.", ""]
+    L += [f"{n} lượt: đúng hoàn toàn **{nd} ({pc(nd)})**, đúng một phần {nm} ({pc(nm)}), "
+          f"sai {ns} ({pc(ns)}). Ghi nhận **{tong_y} ý lỗi**, trong đó **{len(p0)} lỗi P0**: "
+          f"{', '.join(pf_nhan(x) for x in p0) or '—'}."]
+    L += [f"Điểm nóng: kém nhất là **{nt_te}** ({nt_te_pc} đúng); nhóm {nhom_te}.", ""]
 
-    L += ["## 2. Phạm vi", ""]
-    L += [f"- Mốc đánh giá: {', '.join(sorted(fr['Mốc'].unique()))}",
-          f"- Câu hỏi: {fr['Prompt ID'].nunique()} prompt · {n} lượt trả lời",
-          f"- Nền tảng: {', '.join(sorted(fr['Nền tảng'].unique()))}"]
-    if ngays:
-        L += [f"- Khoảng ngày chạy: {min(ngays):%d/%m/%Y} – {max(ngays):%d/%m/%Y}"]
-    L += [""]
-
-    L += ["## 3. Chỉ số chính", ""]
+    L += ["## 2. Chỉ số", ""]
     L += [_md_bang(["Chỉ số", "Giá trị"], [
-        ["Tỷ lệ xuất hiện (AI có nhắc PalFish)", f"{k['xuat_hien']:.0%}"],
-        ["Trả lời đúng hoàn toàn", f"{nd} / {n} ({pc(nd)})"],
-        ["Trả lời đúng một phần", f"{nm} ({pc(nm)})"],
-        ["Trả lời sai", f"{ns} ({pc(ns)})"],
-        ["Không có thông tin", nk],
-        ["Tổng số ý lỗi", tong_y],
+        ["Tỷ lệ xuất hiện", f"{k['xuat_hien']:.0%}"],
+        ["Đúng hoàn toàn", f"{nd} / {n} ({pc(nd)})"],
+        ["Tổng ý lỗi", tong_y],
         ["Trích palfish.vn", f"{k['palfish']:.0%}"],
-        ["Có ≥1 kênh chính thống", f"{k['kenh']:.0%}"],
-        ["Lẫn thông tin nước ngoài / lỗi thời", f"{tron:.0%}"],
+        ["Lẫn TT nước ngoài / lỗi thời", f"{tron:.0%}"],
     ]), ""]
 
-    L += ["## 4. Kết quả theo nền tảng", ""]
-    rows = []
-    for nt in sorted(fr["Nền tảng"].unique()):
-        gg = fr[fr["Nền tảng"] == nt]
-        gd = int((gg["Độ chính xác"] == "Đúng").sum())
-        top = [f"{m}×{c}" for m, c in
-               pd.Series([x for p in gg["_pf"] for x in p]).value_counts().head(3).items()]
-        rows.append([nt, len(gg), f"{gd} ({gd / len(gg) * 100:.0f}%)",
-                     int(gg["Số lỗi"].sum()), ", ".join(top) or "—"])
-    L += [_md_bang(["Nền tảng", "Lượt", "Đúng hoàn toàn", "Ý lỗi", "Mã lỗi hay gặp"], rows), ""]
-
-    L += ["## 5. Kết quả theo nhóm câu hỏi", ""]
-    rows = []
-    for nh in NHOM_ORDER:
-        gg = fr[fr["Nhóm prompt"] == nh]
-        if gg.empty:
-            continue
-        gd = int((gg["Độ chính xác"] == "Đúng").sum())
-        rows.append([nh, len(gg), f"{gd} ({gd / len(gg) * 100:.0f}%)", int(gg["Số lỗi"].sum())])
-    L += [_md_bang(["Nhóm câu hỏi", "Lượt", "Đúng hoàn toàn", "Ý lỗi"], rows), ""]
-
-    L += ["## 6. Các mã lỗi ghi nhận", ""]
-    bp = bang_pf(fr)
-    if bp.empty:
-        L += ["_Không có mã lỗi trong phạm vi này._", ""]
-    else:
-        rows = [[r["Mã"], r["Tên lỗi"], r["Mức"], r["Số lượt"], r["Nền tảng dính"]]
-                for _, r in bp.iterrows()]
-        L += [_md_bang(["Mã", "Tên lỗi", "Mức", "Số lượt", "Nền tảng dính"], rows), ""]
-
-    L += ["## 7. Lỗi P0 — nghiêm trọng, cần xử lý gấp", ""]
+    L += ["## 3. Lỗi P0 — xử lý gấp", ""]
     if not p0:
         L += ["_Không có lỗi P0._", ""]
     else:
         for x in p0:
             gg = fr[fr["_pf"].apply(lambda p: x in p)]
+            g_nts = sorted(gg["Nền tảng"].unique())
+            noi = "cả %d nền tảng" % len(g_nts) if len(g_nts) == len(nts) else ", ".join(g_nts)
+            ai = f" · {ma_nguoi[x]}" if x in ma_nguoi else ""
             L += [f"- **{pf_nhan(x)}** — {PF_MOTA.get(x, '')} "
-                  f"_(xuất hiện {len(gg)} lượt · {', '.join(sorted(gg['Nền tảng'].unique()))})_"]
+                  f"({len(gg)} lượt · {noi}{ai})"]
         L += [""]
 
-    L += ["## 8. Nguồn AI hay trích dẫn sai", ""]
-    _bo = {"", "-", "—", "–", "n/a", "na", "nan", "không", "khong", "(không)"}
-    bad = pd.Series([x.strip() for t in fr["Nguồn thông tin sai"]
-                     for x in re.split(r"[;,]", str(t))
-                     if x.strip() and x.strip().lower() not in _bo])
-    if bad.empty:
-        L += ["_Chưa ghi nhận nguồn sai cụ thể._", ""]
+    L += ["## 4. Top lỗi khác", ""]
+    bp = bang_pf(fr)
+    bp = bp[bp["Mức"] != "P0"].sort_values("Số lượt", ascending=False).head(5) if not bp.empty else bp
+    if bp.empty:
+        L += ["_Không có._", ""]
     else:
-        for src, c in bad.value_counts().head(8).items():
-            L += [f"- {src} ({c})"]
-        L += [""]
+        L += [_md_bang(["Mã", "Tên lỗi", "Mức", "Số lượt"],
+                       [[r["Mã"], r["Tên lỗi"], r["Mức"], r["Số lượt"]] for _, r in bp.iterrows()]), ""]
 
-    L += ["## 9. Trạng thái xử lý lỗi (Issue tracker)", ""]
+    L += ["## 5. Trạng thái xử lý (Issue tracker)", ""]
     if issue is None or issue.empty:
         L += ["_Chưa đọc được Issue tracker._", ""]
     else:
@@ -482,18 +453,15 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
         dong = issue[issue["Trạng thái"] == "Đã đóng"]
         cho = mo[mo["Thông tin đúng"].str.contains("chờ", case=False, na=False)
                  | mo["Thông tin đúng"].eq("")]
-        L += [f"- Tổng mã lỗi ghi nhận: {len(issue)}",
-              f"- Đang mở: {len(mo)} (P0: {(mo['Mức'] == 'P0').sum()} · "
-              f"P1: {(mo['Mức'] == 'P1').sum()} · P2: {(mo['Mức'] == 'P2').sum()})",
-              f"- Đã đóng: {len(dong)}"
-              + (f" ({', '.join(dong['Mã'])})" if not dong.empty else ""), ""]
-        L += ["**Việc đang mở theo người phụ trách:**"]
-        for who, cnt in mo["Người phụ trách"].value_counts().items():
-            L += [f"- {who}: {cnt} — {', '.join(mo[mo['Người phụ trách'] == who]['Mã'])}"]
-        L += ["", f"**Đang chờ Josh / Jacob / HQ chốt:** {', '.join(cho['Mã']) or '—'}", ""]
+        viec = " · ".join(f"{w} {c}" for w, c in mo["Người phụ trách"].value_counts().items())
+        L += [f"- Tổng {len(issue)} mã · đang mở {len(mo)} "
+              f"(P0: {(mo['Mức'] == 'P0').sum()} · P1: {(mo['Mức'] == 'P1').sum()} · "
+              f"P2: {(mo['Mức'] == 'P2').sum()}) · đã đóng {len(dong)}",
+              f"- Việc theo người: {viec or '—'}",
+              f"- Đang chờ Josh / Jacob / HQ chốt: {', '.join(cho['Mã']) or '—'}", ""]
 
     if fr["Mốc"].nunique() > 1:
-        L += ["## 10. Xu hướng qua các mốc", ""]
+        L += ["## Xu hướng qua các mốc", ""]
         rows = []
         for moc in [m for m in MOC_ORDER if m in set(fr["Mốc"])]:
             gg = fr[fr["Mốc"] == moc]
@@ -502,7 +470,7 @@ def bao_cao_tuan(fr: pd.DataFrame, k: dict, issue: pd.DataFrame | None = None) -
                          kk["tong_loi"]])
         L += [_md_bang(["Mốc", "Lượt", "Tỷ lệ đúng", "Tỷ lệ xuất hiện", "Tổng lỗi"], rows), ""]
 
-    L += ["## 11. Việc cần làm / cần quyết (điền tay)",
+    L += ["## 6. Việc cần làm (điền tay)",
           "- Lỗi đã test lại đạt (đóng trong kỳ): …",
           "- Đề xuất cho Content / IT: …",
           "- Cần Josh / Jacob quyết: …"]
