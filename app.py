@@ -45,12 +45,21 @@ PF_MUC = {
     "PF-017": "P2", "PF-018": "P1", "PF-019": "P1", "PF-020": "P1",
     "PF-021": "P2", "PF-022": "P1", "PF-023": "P1",
 }
+# 9 nhóm chi tiết theo Prompt ID (mịn hơn 4 nhóm gốc)
 NHOM_PROMPT = {
-    **{f"P{n:02d}": "Nhận diện & pháp nhân" for n in range(1, 5)},
-    **{f"P{n:02d}": "Liên hệ & địa điểm" for n in range(5, 9)},
-    **{f"P{n:02d}": "Sản phẩm & khóa học" for n in range(9, 15)},
-    **{f"P{n:02d}": "Tin cậy & đánh giá" for n in range(15, 21)},
+    **{f"P{n:02d}": "Pháp nhân & nhận diện" for n in range(1, 5)},
+    "P05": "Địa chỉ văn phòng", "P06": "Địa chỉ văn phòng",
+    "P07": "Liên hệ & đăng ký học thử", "P08": "Liên hệ & đăng ký học thử",
+    "P09": "Độ tuổi & hình thức học", "P10": "Độ tuổi & hình thức học",
+    "P11": "Giáo viên",
+    "P12": "Giáo trình & khóa học", "P14": "Giáo trình & khóa học",
+    "P13": "Học phí",
+    "P15": "Uy tín & đánh giá phụ huynh", "P16": "Uy tín & đánh giá phụ huynh",
+    **{f"P{n:02d}": "So sánh & quy mô & báo chí" for n in range(17, 21)},
 }
+NHOM_ORDER = ["Pháp nhân & nhận diện", "Địa chỉ văn phòng", "Liên hệ & đăng ký học thử",
+              "Độ tuổi & hình thức học", "Giáo viên", "Giáo trình & khóa học", "Học phí",
+              "Uy tín & đánh giá phụ huynh", "So sánh & quy mô & báo chí"]
 MOC_ORDER = ["Baseline", "Cuối T1", "Cuối T2", "Test lại"]
 BAC_CX = ["Đúng", "Đúng một phần", "Sai", "Không có thông tin", "Chưa chấm được"]
 MAU_CX = ["#2E7D32", "#F9A825", "#C62828", "#90A4AE", "#CFD8DC"]
@@ -252,8 +261,7 @@ with st.sidebar:
     f_moc = st.multiselect("Mốc đánh giá", sorted(df["Mốc"].unique(), key=lambda m: MOC_ORDER.index(m) if m in MOC_ORDER else 9),
                            default=list(df["Mốc"].unique()))
     f_nt = st.multiselect("Nền tảng AI", sorted(df["Nền tảng"].unique()), default=list(df["Nền tảng"].unique()))
-    f_nhom = st.multiselect("Nhóm câu hỏi", list(dict.fromkeys(NHOM_PROMPT.values())),
-                            default=list(dict.fromkeys(NHOM_PROMPT.values())))
+    f_nhom = st.multiselect("Nhóm câu hỏi", NHOM_ORDER, default=NHOM_ORDER)
     f_tk = st.multiselect("Loại tài khoản", sorted(df["Loại tài khoản"].unique()),
                           default=list(df["Loại tài khoản"].unique()))
 
@@ -286,16 +294,25 @@ if f.empty:
 
 k = tinh_kpi(f)
 
-n_dung = int((f["Độ chính xác"] == "Đúng").sum())
-n_mot = int((f["Độ chính xác"] == "Đúng một phần").sum())
-n_sai = int((f["Độ chính xác"] == "Sai").sum())
+m_dung = f["Độ chính xác"] == "Đúng"
+m_mot = f["Độ chính xác"] == "Đúng một phần"
+m_sai = f["Độ chính xác"] == "Sai"
+
+
+def _y(mask):  # số "ý" lỗi (tổng cột Số lỗi) của nhóm câu — cùng thang với card Tổng số lỗi
+    return int(f.loc[mask, "Số lỗi"].sum())
+
 
 cols = st.columns(5)
 cols[0].metric("Tổng lượt kiểm tra", len(f))
-cols[1].metric("Trả lời chính xác", n_dung)
-cols[2].metric("Chính xác một phần", n_mot)
-cols[3].metric("Trả lời sai", n_sai)
+cols[1].metric("Trả lời chính xác", int(m_dung.sum()))
+cols[1].caption(f"↳ {_y(m_dung)} ý lỗi trong nhóm")
+cols[2].metric("Chính xác một phần", int(m_mot.sum()))
+cols[2].caption(f"↳ {_y(m_mot)} ý lỗi trong nhóm")
+cols[3].metric("Trả lời sai", int(m_sai.sum()))
+cols[3].caption(f"↳ {_y(m_sai)} ý lỗi trong nhóm")
 cols[4].metric("Tổng số lỗi ghi nhận", k["tong_loi"])
+cols[4].caption("↳ = tổng 3 ô bên trái")
 
 tab_tq, tab_pr, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
     ["Tổng quan", "Phân tích theo câu hỏi", "Danh mục lỗi", "Nguồn trích dẫn",
@@ -305,28 +322,29 @@ tab_tq, tab_pr, tab_pf, tab_ng, tab_ct, tab_bc = st.tabs(
 with tab_tq:
     c1, c2 = st.columns([3, 2])
     with c1:
-        st.subheader("Độ chính xác theo nền tảng")
-        base = f.assign(_bac=pd.Categorical(f["Độ chính xác"], BAC_CX, ordered=True))
-        ch = (alt.Chart(base).mark_bar().encode(
-            x=alt.X("Nền tảng:N", title=None),
-            y=alt.Y("count():Q", title="Số lượt"),
-            color=alt.Color("_bac:N", title="Độ chính xác",
-                            scale=alt.Scale(domain=BAC_CX, range=MAU_CX), sort=BAC_CX),
-            order=alt.Order("_bac:N"),
-            tooltip=["Nền tảng:N", "_bac:N", alt.Tooltip("count():Q", title="Số lượt")],
-        ).properties(height=320))
-        st.altair_chart(ch, use_container_width=True)
+        st.subheader("Độ chính xác theo nhóm câu hỏi")
+        _b = pd.Categorical(f["Độ chính xác"], BAC_CX, ordered=True)
+        piv = (f.assign(_b=_b).groupby(["Nhóm prompt", "_b"], observed=False)
+               .size().unstack(fill_value=0).reindex(NHOM_ORDER, fill_value=0))
+        piv = piv[BAC_CX]
+        piv["Tổng"] = piv.sum(axis=1)
+        _tong = piv.sum(axis=0)
+        _tong.name = "TỔNG CỘNG"
+        piv = pd.concat([piv, _tong.to_frame().T])
+        piv["% Đúng"] = ((piv["Đúng"] / piv["Tổng"].replace(0, 1) * 100)
+                         .round().astype(int).astype(str) + "%")
+        st.dataframe(piv, use_container_width=True)
+        st.caption("Số câu theo từng mức; % Đúng = Đúng / Tổng của nhóm.")
     with c2:
-        st.subheader("Tỷ lệ trích dẫn palfish.vn")
-        dd = pd.DataFrame({
-            "Nhóm": ["Có trích palfish.vn", "Không"],
-            "Số lượt": [int(f["Trích palfish.vn"].sum()), int((~f["Trích palfish.vn"]).sum())],
-        })
-        ch = (alt.Chart(dd).mark_arc(innerRadius=60).encode(
-            theta="Số lượt:Q",
-            color=alt.Color("Nhóm:N", scale=alt.Scale(range=["#2E7D32", "#CFD8DC"]), title=None),
-            tooltip=["Nhóm:N", "Số lượt:Q"],
-        ).properties(height=260))
+        st.subheader("Tỷ lệ độ chính xác (tổng)")
+        dd = (f["Độ chính xác"].value_counts().reindex(BAC_CX, fill_value=0)
+              .rename_axis("Độ chính xác").reset_index(name="Số câu"))
+        ch = (alt.Chart(dd).mark_arc(innerRadius=55).encode(
+            theta="Số câu:Q",
+            color=alt.Color("Độ chính xác:N", sort=BAC_CX, title=None,
+                            scale=alt.Scale(domain=BAC_CX, range=MAU_CX)),
+            tooltip=["Độ chính xác:N", "Số câu:Q"],
+        ).properties(height=280))
         st.altair_chart(ch, use_container_width=True)
         st.metric("Lẫn thông tin nước ngoài / lỗi thời",
                   f"{(f['Trộn nước ngoài'] != 'Không').mean():.0%} lượt")
