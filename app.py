@@ -577,15 +577,6 @@ st.markdown(
     f"[tab 3 — Issue tracker]({_sheet_url}#gid={SHEET_GID_ISSUE})"
 )
 
-with st.expander("📋 Chú giải: 20 câu hỏi prompt & 9 nhóm"):
-    _rows_ch = [{"Nhóm": _nh, "Mã": _q, "Câu hỏi": CAU_HOI.get(_q, "")}
-                for _nh in NHOM_ORDER
-                for _q in sorted(m for m, g in NHOM_PROMPT.items() if g == _nh)]
-    st.dataframe(pd.DataFrame(_rows_ch), use_container_width=True, hide_index=True,
-                 column_config={"Câu hỏi": st.column_config.TextColumn(width="large")})
-    st.caption("20 câu hỏi cố định (nguyên văn — không đổi giữa các mốc). "
-               "Nguồn: tab “20 Prompt” trong Google Sheet.")
-
 if f.empty:
     st.warning("Không có dòng nào khớp bộ lọc.")
     st.stop()
@@ -611,6 +602,15 @@ cols[3].metric("Trả lời sai", int(m_sai.sum()))
 cols[3].caption(f"↳ {_y(m_sai)} ý lỗi trong nhóm")
 cols[4].metric("Tổng số lỗi ghi nhận", k["tong_loi"])
 cols[4].caption("↳ = tổng 3 ô bên trái")
+
+with st.expander("📋 Chú giải: 20 câu hỏi prompt & 9 nhóm"):
+    _rows_ch = [{"Nhóm": _nh, "Mã": _q, "Câu hỏi": CAU_HOI.get(_q, "")}
+                for _nh in NHOM_ORDER
+                for _q in sorted(m for m, g in NHOM_PROMPT.items() if g == _nh)]
+    st.dataframe(pd.DataFrame(_rows_ch), use_container_width=True, hide_index=True,
+                 column_config={"Câu hỏi": st.column_config.TextColumn(width="large")})
+    st.caption("20 câu hỏi cố định (nguyên văn — không đổi giữa các mốc). "
+               "Nguồn: tab “20 Prompt” trong Google Sheet.")
 
 tab_tq, tab_pr, tab_nt, tab_pf, tab_ng, tab_tt, tab_ct, tab_bc = st.tabs(
     ["Tổng quan", "Phân tích theo câu hỏi", "Phân tích theo nền tảng", "Danh mục lỗi",
