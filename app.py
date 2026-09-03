@@ -843,13 +843,32 @@ with tab_ct:
 
 with tab_bc:
     st.subheader("Bản tổng hợp định kỳ (tự động tạo)")
-    st.caption("Tính trên **toàn bộ dữ liệu, mọi ngày** (không theo bộ lọc bên trái) + Issue "
-               "tracker. Copy / tải về, thêm phần “Việc cần làm” rồi gửi. Công cụ không tự lưu / gửi.")
-    txt = bao_cao_tuan(df, tinh_kpi(df), issue)
-    st.download_button("Tải bản .md", data=txt.encode("utf-8"),
-                       file_name=f"bao-cao-GEO-{dt.date.today():%Y%m%d}.md", mime="text/markdown")
-    st.markdown("<style>div[data-testid='stMarkdownContainer'] h4"
-                "{font-size:1.05rem;margin:.3rem 0}</style>", unsafe_allow_html=True)
-    st.markdown(txt)
-    with st.expander("Xem dạng văn bản thô (để copy sang email / chat)"):
-        st.code(txt, language="markdown")
+    _bc_ngays = sorted(x for x in df["Ngày chạy"].dropna().unique())
+    bc1, bc2 = st.columns([1, 2])
+    bc_che_do = bc1.radio("Phạm vi báo cáo", ["Toàn bộ (mọi ngày)", "Chọn ngày / khoảng ngày"],
+                          label_visibility="collapsed")
+    dfr = df
+    if bc_che_do.startswith("Chọn") and _bc_ngays:
+        _lo, _hi = _bc_ngays[0], _bc_ngays[-1]
+        _sel = bc2.date_input("Khoảng ngày", (_lo, _hi), min_value=_lo, max_value=_hi,
+                              help="Chọn cùng 1 ngày cho cả 2 ô để lấy đúng ngày đó.")
+        if isinstance(_sel, (list, tuple)):
+            _a, _b = _sel[0], _sel[-1]
+        else:
+            _a = _b = _sel
+        dfr = df[df["Ngày chạy"].notna() & df["Ngày chạy"].between(_a, _b)]
+
+    st.caption("Không theo bộ lọc bên trái. Phần Issue tracker luôn là trạng thái hiện tại. "
+               "Copy / tải về, thêm phần “Việc cần làm” rồi gửi. Công cụ không tự lưu / gửi.")
+    if dfr.empty:
+        st.warning("Không có lượt kiểm tra nào trong khoảng ngày đã chọn.")
+    else:
+        txt = bao_cao_tuan(dfr, tinh_kpi(dfr), issue)
+        st.download_button("Tải bản .md", data=txt.encode("utf-8"),
+                           file_name=f"bao-cao-GEO-{dt.date.today():%Y%m%d}.md",
+                           mime="text/markdown")
+        st.markdown("<style>div[data-testid='stMarkdownContainer'] h4"
+                    "{font-size:1.05rem;margin:.3rem 0}</style>", unsafe_allow_html=True)
+        st.markdown(txt)
+        with st.expander("Xem dạng văn bản thô (để copy sang email / chat)"):
+            st.code(txt, language="markdown")
