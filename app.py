@@ -532,18 +532,7 @@ with tab_nt:
 
     st.subheader("Nền tảng nào dính những mã lỗi nào")
     st.altair_chart(_bd_pf_theo_nhom(f, "Nền tảng", plat_order), use_container_width=True)
-
-    st.subheader("Hành vi trích dẫn nguồn theo nền tảng")
-    gnt = f.groupby("Nền tảng").agg(**{
-        "Số lượt": ("Prompt ID", "size"),
-        "Trích palfish.vn": ("Trích palfish.vn", "mean"),
-        "Có kênh chính thống": ("Kênh chính thống khác", "mean"),
-    })
-    gnt["Lẫn TT nước ngoài"] = (f.assign(_x=f["Trộn nước ngoài"].ne("Không"))
-                               .groupby("Nền tảng")["_x"].mean())
-    for c in ["Trích palfish.vn", "Có kênh chính thống", "Lẫn TT nước ngoài"]:
-        gnt[c] = (gnt[c] * 100).round().astype(int).astype(str) + "%"
-    st.dataframe(gnt.reset_index(), use_container_width=True, hide_index=True)
+    st.caption("Hành vi trích dẫn nguồn của từng nền tảng: xem tab Nguồn trích dẫn.")
 
 with tab_pf:
     st.subheader("Danh mục & tần suất mã lỗi")
@@ -564,19 +553,34 @@ with tab_pf:
                      column_config={"Mô tả": st.column_config.TextColumn(width="large")})
 
     st.divider()
-    st.subheader("Số lỗi trên mỗi lượt trả lời")
+    st.subheader("Phân bố lỗi")
     daca = f[f["Độ chính xác"].isin(["Đúng", "Đúng một phần", "Sai", "Không có thông tin"])]
     if daca.empty:
         st.info("Chưa có lượt nào được chấm trong phạm vi lọc.")
     else:
-        dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
-                .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
-        st.altair_chart(alt.Chart(dist).mark_bar().encode(
-            x=alt.X("Số lỗi / lượt:O"),
-            y=alt.Y("Số lượt:Q"),
-            tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
-        ).properties(height=280), use_container_width=True)
-        st.caption("Bao nhiêu lượt trả lời có 0 lỗi, 1 lỗi, 2 lỗi…")
+        d1, d2 = st.columns(2)
+        with d1:
+            st.caption("Số lỗi trên mỗi lượt trả lời (bao nhiêu lượt có 0 lỗi, 1 lỗi, 2 lỗi…)")
+            dist = (daca["Số lỗi"].fillna(0).astype(int).value_counts().sort_index()
+                    .rename_axis("Số lỗi / lượt").reset_index(name="Số lượt"))
+            st.altair_chart(alt.Chart(dist).mark_bar().encode(
+                x=alt.X("Số lỗi / lượt:O"),
+                y=alt.Y("Số lượt:Q"),
+                tooltip=["Số lỗi / lượt:O", "Số lượt:Q"],
+            ).properties(height=300), use_container_width=True)
+        with d2:
+            st.caption("Phân bố theo nhóm chủ đề lỗi (cột “Loại lỗi” trong sheet)")
+            loai = pd.Series([p.strip() for s in f["Loại lỗi"]
+                              for p in re.split(r";", str(s)) if p.strip()])
+            if loai.empty:
+                st.info("Cột “Loại lỗi” đang trống.")
+            else:
+                vc = loai.value_counts().rename_axis("Nhóm chủ đề").reset_index(name="Số lượt")
+                st.altair_chart(alt.Chart(vc).mark_bar().encode(
+                    x=alt.X("Số lượt:Q"),
+                    y=alt.Y("Nhóm chủ đề:N", sort="-x", title=None),
+                    tooltip=["Nhóm chủ đề:N", "Số lượt:Q"],
+                ).properties(height=max(200, 26 * len(vc))), use_container_width=True)
 
 with tab_ng:
     c1, c2 = st.columns(2)
@@ -605,8 +609,17 @@ with tab_ng:
                 tooltip=["Nguồn:N", "Số lượt:Q"],
             ).properties(height=max(200, 24 * len(vc))), use_container_width=True)
 
-    st.caption("Tỷ lệ trích palfish.vn / kênh chính thống theo từng nền tảng: "
-               "xem bảng “Hành vi trích dẫn nguồn theo nền tảng” ở tab Phân tích theo nền tảng.")
+    st.subheader("Hành vi trích dẫn nguồn theo nền tảng")
+    gnt = f.groupby("Nền tảng").agg(**{
+        "Số lượt": ("Prompt ID", "size"),
+        "Trích palfish.vn": ("Trích palfish.vn", "mean"),
+        "Có kênh chính thống": ("Kênh chính thống khác", "mean"),
+    })
+    gnt["Lẫn TT nước ngoài"] = (f.assign(_x=f["Trộn nước ngoài"].ne("Không"))
+                               .groupby("Nền tảng")["_x"].mean())
+    for c in ["Trích palfish.vn", "Có kênh chính thống", "Lẫn TT nước ngoài"]:
+        gnt[c] = (gnt[c] * 100).round().astype(int).astype(str) + "%"
+    st.dataframe(gnt.reset_index(), use_container_width=True, hide_index=True)
 
 with tab_ct:
     st.subheader("Toàn bộ lượt kiểm tra")
