@@ -94,17 +94,18 @@ def pf_nhan(ma: str) -> str:
     """PF-011 -> 'PF-011 (Nguồn gốc)'."""
     ten = PF_TEN.get(ma)
     return f"{ma} ({ten})" if ten else ma
-# 9 nhóm chi tiết theo Prompt ID (mịn hơn 4 nhóm gốc)
+# 9 nhóm chi tiết theo Prompt ID (mịn hơn 4 nhóm gốc).
+# Prompt ID dùng Qxx (Q01..Q20) — tránh nhầm với mã lỗi PF-xxx.
 NHOM_PROMPT = {
-    **{f"P{n:02d}": "Pháp nhân & nhận diện" for n in range(1, 5)},
-    "P05": "Địa chỉ văn phòng", "P06": "Địa chỉ văn phòng",
-    "P07": "Liên hệ & đăng ký học thử", "P08": "Liên hệ & đăng ký học thử",
-    "P09": "Độ tuổi & hình thức học", "P10": "Độ tuổi & hình thức học",
-    "P11": "Giáo viên",
-    "P12": "Giáo trình & khóa học", "P14": "Giáo trình & khóa học",
-    "P13": "Học phí",
-    "P15": "Uy tín & đánh giá phụ huynh", "P16": "Uy tín & đánh giá phụ huynh",
-    **{f"P{n:02d}": "So sánh & quy mô & báo chí" for n in range(17, 21)},
+    **{f"Q{n:02d}": "Pháp nhân & nhận diện" for n in range(1, 5)},
+    "Q05": "Địa chỉ văn phòng", "Q06": "Địa chỉ văn phòng",
+    "Q07": "Liên hệ & đăng ký học thử", "Q08": "Liên hệ & đăng ký học thử",
+    "Q09": "Độ tuổi & hình thức học", "Q10": "Độ tuổi & hình thức học",
+    "Q11": "Giáo viên",
+    "Q12": "Giáo trình & khóa học", "Q14": "Giáo trình & khóa học",
+    "Q13": "Học phí",
+    "Q15": "Uy tín & đánh giá phụ huynh", "Q16": "Uy tín & đánh giá phụ huynh",
+    **{f"Q{n:02d}": "So sánh & quy mô & báo chí" for n in range(17, 21)},
 }
 NHOM_ORDER = ["Pháp nhân & nhận diện", "Địa chỉ văn phòng", "Liên hệ & đăng ký học thử",
               "Độ tuổi & hình thức học", "Giáo viên", "Giáo trình & khóa học", "Học phí",
@@ -231,7 +232,8 @@ def chuan_hoa(df: pd.DataFrame) -> pd.DataFrame:
     o["Ngày chạy"] = pd.to_datetime(
         g(col(df, "ngày chạy") or col(df, "ngay chay")), errors="coerce"
     ).dt.date
-    o["Prompt ID"] = g(col(df, "prompt id") or col(df, "prompt")).str.upper()
+    o["Prompt ID"] = (g(col(df, "prompt id") or col(df, "prompt")).str.upper()
+                      .str.replace(r"^P(\d\d)$", r"Q\1", regex=True))  # Pxx cũ -> Qxx
     o["Lần chạy"] = pd.to_numeric(g(col(df, "lần chạy") or col(df, "lan chay")), errors="coerce")
     o["Câu trả lời"] = g(col(df, "câu trả lời") or col(df, "tra loi"))
     o["Xuất hiện"] = g(col(df, "xuất hiện") or col(df, "xuat hien"))
@@ -264,7 +266,7 @@ def chuan_hoa(df: pd.DataFrame) -> pd.DataFrame:
     o["Ghi chú"] = g(col(df, "ghi chú") or col(df, "ghi chu"))
 
     o["Nhóm prompt"] = o["Prompt ID"].map(NHOM_PROMPT).fillna("Khác")
-    mask = o["Prompt ID"].str.match(r"^P\d\d$") & o["Câu trả lời"].str.len().gt(0)
+    mask = o["Prompt ID"].str.match(r"^Q\d\d$") & o["Câu trả lời"].str.len().gt(0)
     return o[mask].reset_index(drop=True)
 
 
@@ -498,7 +500,7 @@ except Exception as e:  # noqa: BLE001
 df = chuan_hoa(raw)
 if df.empty:
     st.warning("Sheet đọc được nhưng chưa có lượt chạy nào hợp lệ "
-               "(cần Prompt ID dạng Pxx và cột 'Câu trả lời đầy đủ' có nội dung).")
+               "(cần Prompt ID dạng Qxx và cột 'Câu trả lời đầy đủ' có nội dung).")
     st.stop()
 
 issue = chuan_hoa_issue(tai_issue(sid, SHEET_GID_ISSUE))
