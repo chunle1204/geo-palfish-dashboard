@@ -576,6 +576,16 @@ st.markdown(
     f"[tab 4a — Nhật ký lượt chạy]({_sheet_url}#gid={SHEET_GID_MAC_DINH}) · "
     f"[tab 3 — Issue tracker]({_sheet_url}#gid={SHEET_GID_ISSUE})"
 )
+
+with st.expander("📋 Chú giải: 20 câu hỏi prompt & 9 nhóm"):
+    _rows_ch = [{"Nhóm": _nh, "Mã": _q, "Câu hỏi": CAU_HOI.get(_q, "")}
+                for _nh in NHOM_ORDER
+                for _q in sorted(m for m, g in NHOM_PROMPT.items() if g == _nh)]
+    st.dataframe(pd.DataFrame(_rows_ch), use_container_width=True, hide_index=True,
+                 column_config={"Câu hỏi": st.column_config.TextColumn(width="large")})
+    st.caption("20 câu hỏi cố định (nguyên văn — không đổi giữa các mốc). "
+               "Nguồn: tab “20 Prompt” trong Google Sheet.")
+
 if f.empty:
     st.warning("Không có dòng nào khớp bộ lọc.")
     st.stop()
@@ -687,16 +697,6 @@ with tab_tq:
 with tab_pr:
     st.caption("Cùng 9 nhóm câu hỏi như bảng “Độ chính xác theo nhóm câu hỏi” ở tab Tổng quan, "
                "sắp xếp theo đúng thứ tự đó.")
-
-    with st.expander("📋 Chú giải: 20 câu hỏi prompt & 9 nhóm"):
-        _rows_ch = []
-        for _nh in NHOM_ORDER:
-            for _q in sorted(m for m, g in NHOM_PROMPT.items() if g == _nh):
-                _rows_ch.append({"Nhóm": _nh, "Mã": _q, "Câu hỏi": CAU_HOI.get(_q, "")})
-        st.dataframe(pd.DataFrame(_rows_ch), use_container_width=True, hide_index=True,
-                     column_config={"Câu hỏi": st.column_config.TextColumn(width="large")})
-        st.caption("20 câu hỏi cố định (nguyên văn — không đổi giữa các mốc). "
-                   "Nguồn: tab “20 Prompt” trong Google Sheet.")
 
     st.subheader("Tỷ lệ độ chính xác theo nhóm câu hỏi")
     st.altair_chart(_bd_ty_le_cx(f, "Nhóm prompt", NHOM_ORDER), use_container_width=True)
